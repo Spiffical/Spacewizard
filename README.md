@@ -36,6 +36,7 @@ This repository contains two complete implementations of the SpaceWizard system:
 - Maps motion data to MaestroDMX parameters
 - Professional lighting effects (strobe, brightness, speed, excitement)
 - Python bridge for easy integration and customization
+- **Test mode** for debugging and data visualization without MaestroDMX
 
 ## Hardware Requirements
 
@@ -98,8 +99,10 @@ This repository contains two complete implementations of the SpaceWizard system:
 2. Navigate to `maestro-osc-version/` folder
 3. Install Python dependencies: `pip install -r requirements.txt`
 4. Upload Arduino receiver code (transmitter code is the same)
-5. Run Python script: `python serial_to_osc_bridge.py`
-6. Control MaestroDMX lights with motion!
+5. **Test the system**: `python serial_to_osc_bridge.py --test` (visualize motion data)
+6. **Debug impact detection**: `python serial_to_osc_bridge.py --impact-test` (detailed impact analysis)
+7. **Connect to MaestroDMX**: `python serial_to_osc_bridge.py` (when ready)
+8. Control MaestroDMX lights with motion!
 
 ## Technical Architecture
 

@@ -1,9 +1,9 @@
 /*
- * SpaceWizard Transmitter - MPU6050 Motion Controller with nRF24L01 Wireless
+ * SpaceWizard OSC Transmitter - MPU6050 Motion Controller for MaestroDMX OSC
  *
- * This Arduino sketch reads motion data from an MPU6050 accelerometer/gyroscope
- * and transmits it wirelessly using an nRF24L01 radio module. The device also
- * includes button controls for different operating modes.
+ * This Arduino sketch reads raw motion data from an MPU6050 accelerometer/gyroscope
+ * and transmits it wirelessly using an nRF24L01 radio module. The receiver converts
+ * this data to OSC messages for MaestroDMX lighting control.
  *
  * Hardware Components:
  * - Arduino Nano/UNO
@@ -11,8 +11,12 @@
  * - nRF24L01 radio transceiver
  * - Push button for mode switching
  *
- * The transmitter sends yaw, pitch, roll angles along with button states
- * to a receiver unit that controls LED patterns based on the motion data.
+ * Transmits raw sensor data for OSC processing:
+ * - Raw accelerometer values (16-bit signed integers)
+ * - Raw gyroscope values (16-bit signed integers)
+ * - Orientation angles (degrees)
+ * - Impact detection flag
+ * - Button state
  */
 
 #include <SPI.h>
@@ -22,7 +26,7 @@
 #include <Wire.h>
 
 // Debug configuration - comment out to disable serial output
-#define DEBUG
+//#define DEBUG
 
 #ifdef DEBUG
   #define DEBUG_PRINT(x)     Serial.print (x)
@@ -40,7 +44,7 @@
 #define RADIO_CE_PIN        9
 #define RADIO_CS_PIN        10
 #define RADIO_TIMEOUT_MS    3000
-#define RADIO_PAYLOAD_SIZE  16
+#define RADIO_PAYLOAD_SIZE  32  // Increased for more data
 
 // Communication pipes (addresses for radio communication)
 const uint64_t RADIO_PIPES[3] = {
@@ -49,15 +53,13 @@ const uint64_t RADIO_PIPES[3] = {
   0xEEFDFAF50E2LL   // Tertiary pipe
 };
 
-// Button Configuration
-#define BUTTON_PIN          6
-#define BUTTON_DEBOUNCE_MS  20
-#define BUTTON_HOLD_MS      2000
+// Note: No button configuration needed for OSC version
 
 // MPU6050 Configuration & Data
 #define MPU6050_I2C_SPEED   400000  // 400kHz I2C speed
 
 // MPU6050 calibration offsets (these values are specific to your sensor)
+// Run calibration first to get your sensor's values!
 #define MPU_GYRO_X_OFFSET   -465  // Your calibrated gyro X offset
 #define MPU_GYRO_Y_OFFSET   90    // Your calibrated gyro Y offset
 #define MPU_GYRO_Z_OFFSET   0     // Your calibrated gyro Z offset
@@ -69,23 +71,24 @@ const uint64_t RADIO_PIPES[3] = {
 
 // Radio communication
 RF24 radio(RADIO_CE_PIN, RADIO_CS_PIN);
-uint16_t transmitData[6];  // Array to hold data being transmitted
+int16_t transmitData[10];  // [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
 
-// Button state management
-int buttonValue = 0;        // Current button state (HIGH/LOW)
-int lastButtonValue = 0;    // Previous button state for edge detection
-long buttonPressTime = 0;   // Timestamp when button was pressed
-long buttonReleaseTime = 0; // Timestamp when button was released
-bool ignoreButtonUp = false; // Flag to ignore button release after hold
-int holdMode = 0;           // 0 = normal mode, 1 = hold mode activated
-int pressMode = 0;          // 0-4 different press modes
+// Note: No button state management needed for OSC version
 
 // MPU6050 sensor
 MPU6050 mpu;
 
-// Motion data storage
-int accelHistory[3] = {0, 0, 0};  // Store recent acceleration values
-int currentAccelZ = 0;           // Current Z-axis acceleration
+// Raw sensor data storage
+int16_t rawAccelX = 0;      // Raw X-axis acceleration (16-bit signed)
+int16_t rawAccelY = 0;      // Raw Y-axis acceleration (16-bit signed)
+int16_t rawAccelZ = 0;      // Raw Z-axis acceleration (16-bit signed)
+int16_t rawGyroX = 0;       // Raw X-axis gyroscope (16-bit signed)
+int16_t rawGyroY = 0;       // Raw Y-axis gyroscope (16-bit signed)
+int16_t rawGyroZ = 0;       // Raw Z-axis gyroscope (16-bit signed)
+float yawAngle = 0.0;       // Yaw angle (degrees, 0-360)
+float pitchAngle = 0.0;     // Pitch angle (degrees, -90 to +90)
+float rollAngle = 0.0;      // Roll angle (degrees, -90 to +90)
+bool impactDetected = false; // Impact/shock detection flag
 
 // MPU6050 control/status variables
 bool mpuInitialized = false;     // Set true if MPU6050 DMP initialization was successful
@@ -101,7 +104,6 @@ VectorFloat gravityVector;       // [x, y, z] gravity vector
 float yawPitchRoll[3];           // [yaw, pitch, roll] angles in radians
 VectorInt16 rawAcceleration;     // [x, y, z] raw accelerometer measurements
 VectorInt16 realAcceleration;    // [x, y, z] gravity-free accelerometer measurements
-VectorInt16 worldAcceleration;   // [x, y, z] world-frame accelerometer measurements
 
 // ================================================================
 // ===               MPU6050 INTERRUPT HANDLER                  ===
@@ -127,7 +129,6 @@ void dmpDataReady() {
  */
 void setup() {
     initializeSerial();
-    initializeButton();
     initializeMPU6050();
     initializeRadio();
 }
@@ -137,18 +138,12 @@ void setup() {
  */
 void initializeSerial() {
     #ifdef DEBUG
-        Serial.begin(9600);
-        DEBUG_PRINTLN("SpaceWizard Transmitter Starting...");
+        Serial.begin(115200);
+        DEBUG_PRINTLN("SpaceWizard OSC Transmitter Starting...");
     #endif
 }
 
-/*
- * Initialize the button pin with pull-up resistor.
- */
-void initializeButton() {
-    pinMode(BUTTON_PIN, INPUT);
-    digitalWrite(BUTTON_PIN, HIGH);  // Enable pull-up resistor
-}
+// Note: No button initialization needed for OSC version
 
 /*
  * Initialize the MPU6050 sensor and DMP (Digital Motion Processor).
@@ -223,58 +218,11 @@ void initializeRadio() {
  * Handles button input, MPU6050 data processing, and radio transmission.
  */
 void loop() {
-    handleButtonInput();
     processMPU6050Data();
     transmitMotionData();
 }
 
-/*
- * Handle button press and release events to change operating modes.
- */
-void handleButtonInput() {
-    buttonValue = digitalRead(BUTTON_PIN);
-
-    // Check for button press
-    if (buttonValue == LOW && lastButtonValue == HIGH &&
-        (millis() - buttonReleaseTime) > BUTTON_DEBOUNCE_MS) {
-        buttonPressTime = millis();
-    }
-
-    // Check for button release
-    if (buttonValue == HIGH && lastButtonValue == LOW &&
-        (millis() - buttonPressTime) > BUTTON_DEBOUNCE_MS) {
-        if (!ignoreButtonUp) {
-            handleButtonPress();
-        } else {
-            ignoreButtonUp = false;
-        }
-        buttonReleaseTime = millis();
-    }
-
-    // Check for button hold (long press)
-    if (buttonValue == LOW && (millis() - buttonPressTime) > BUTTON_HOLD_MS) {
-        handleButtonHold();
-        ignoreButtonUp = true;
-        buttonPressTime = millis();
-    }
-
-    lastButtonValue = buttonValue;
-}
-
-/*
- * Handle short button press events (mode cycling).
- */
-void handleButtonPress() {
-    pressMode = (pressMode + 1) % 5;  // Cycle through 5 press modes (0-4)
-}
-
-/*
- * Handle long button hold events (hold mode toggle).
- */
-void handleButtonHold() {
-    holdMode = !holdMode;  // Toggle between normal and hold mode
-    pressMode = 0;        // Reset press mode when hold mode changes
-}
+// Note: No button handling needed for OSC version
 
 /*
  * Process MPU6050 data and prepare it for transmission.
@@ -294,8 +242,6 @@ void processMPU6050Data() {
     }
     // Process available data packets
     else if (mpuInterruptStatus & 0x02) {
-        int packetsAvailable = fifoByteCount / dmpPacketSize;
-
         // Read all available packets from FIFO
         while (mpu.getFIFOCount() > dmpPacketSize) {
             mpu.getFIFOBytes(fifoBuffer, dmpPacketSize);
@@ -306,27 +252,47 @@ void processMPU6050Data() {
         mpu.dmpGetAccel(&rawAcceleration, fifoBuffer);
         mpu.dmpGetGravity(&gravityVector, &quaternion);
         mpu.dmpGetLinearAccel(&realAcceleration, &rawAcceleration, &gravityVector);
-        mpu.dmpGetLinearAccelInWorld(&worldAcceleration, &realAcceleration, &quaternion);
         mpu.dmpGetYawPitchRoll(yawPitchRoll, &quaternion, &gravityVector);
 
-        // Update acceleration history for filtering
-        accelHistory[2] = accelHistory[1];
-        accelHistory[1] = accelHistory[0];
-        accelHistory[0] = worldAcceleration.z;
+        // Store raw sensor data
+        rawAccelX = rawAcceleration.x;
+        rawAccelY = rawAcceleration.y;
+        rawAccelZ = rawAcceleration.z;
+
+        // Get raw gyroscope data
+        mpu.getRotation(&rawGyroX, &rawGyroY, &rawGyroZ);
+
+        // Convert orientation angles to degrees
+        yawAngle = yawPitchRoll[0] * 180 / M_PI;
+        if (yawAngle < 0) yawAngle += 360;  // Ensure positive range
+
+        pitchAngle = yawPitchRoll[1] * 180 / M_PI;
+        rollAngle = yawPitchRoll[2] * 180 / M_PI;
+
+        // Simple impact detection based on linear acceleration magnitude
+        float accelMagnitude = sqrt(pow(realAcceleration.x, 2) +
+                                  pow(realAcceleration.y, 2) +
+                                  pow(realAcceleration.z, 2));
+        impactDetected = (accelMagnitude > 2000);  // Threshold for impact detection
     }
 }
 
 /*
  * Prepare and transmit motion data via radio.
+ * Data format: [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
  */
 void transmitMotionData() {
-    // Prepare data packet [yaw, pitch, roll, holdMode, pressMode, accelZ]
-    transmitData[0] = abs(yawPitchRoll[0] * 180 / M_PI);  // Convert yaw to degrees
-    transmitData[1] = abs(yawPitchRoll[1] * 180 / M_PI);  // Convert pitch to degrees
-    transmitData[2] = abs(yawPitchRoll[2] * 180 / M_PI);  // Convert roll to degrees
-    transmitData[3] = holdMode;
-    transmitData[4] = pressMode;
-    transmitData[5] = accelHistory[0];
+    // Prepare data packet with all required values (no button state for OSC version)
+    transmitData[0] = rawAccelX;     // Raw X-axis acceleration (16-bit signed)
+    transmitData[1] = rawAccelY;     // Raw Y-axis acceleration (16-bit signed)
+    transmitData[2] = rawAccelZ;     // Raw Z-axis acceleration (16-bit signed)
+    transmitData[3] = rawGyroX;      // Raw X-axis gyroscope (16-bit signed)
+    transmitData[4] = rawGyroY;      // Raw Y-axis gyroscope (16-bit signed)
+    transmitData[5] = rawGyroZ;      // Raw Z-axis gyroscope (16-bit signed)
+    transmitData[6] = (int16_t)yawAngle;     // Yaw angle (degrees, 0-360)
+    transmitData[7] = (int16_t)pitchAngle;   // Pitch angle (degrees, -90 to +90)
+    transmitData[8] = (int16_t)rollAngle;    // Roll angle (degrees, -90 to +90)
+    transmitData[9] = impactDetected ? 1 : 0; // Impact detection flag
 
     // Transmit data on all three pipes for redundancy
     radio.openWritingPipe(RADIO_PIPES[0]);
@@ -337,4 +303,32 @@ void transmitMotionData() {
 
     radio.openWritingPipe(RADIO_PIPES[2]);
     radio.write(transmitData, sizeof(transmitData));
+
+    // Debug output
+    #ifdef DEBUG
+        static int debugCounter = 0;
+        if (debugCounter % 20 == 0) {  // Print every 20 transmissions
+            DEBUG_PRINT("Accel: ");
+            DEBUG_PRINT(rawAccelX); DEBUG_PRINT(",");
+            DEBUG_PRINT(rawAccelY); DEBUG_PRINT(",");
+            DEBUG_PRINT(rawAccelZ); DEBUG_PRINT(" ");
+
+            DEBUG_PRINT("Gyro: ");
+            DEBUG_PRINT(rawGyroX); DEBUG_PRINT(",");
+            DEBUG_PRINT(rawGyroY); DEBUG_PRINT(",");
+            DEBUG_PRINT(rawGyroZ); DEBUG_PRINT(" ");
+
+            DEBUG_PRINT("Angles: ");
+            DEBUG_PRINT(yawAngle);
+            DEBUG_PRINT(",");
+            DEBUG_PRINT(pitchAngle);
+            DEBUG_PRINT(",");
+            DEBUG_PRINT(rollAngle);
+            DEBUG_PRINT(" ");
+
+            DEBUG_PRINT("Impact: ");
+            DEBUG_PRINTLN(impactDetected);
+        }
+        debugCounter++;
+    #endif
 }

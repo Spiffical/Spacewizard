@@ -1,15 +1,14 @@
 /*
- * MPU6050 Calibration Sketch for SpaceWizard Project
+ * Simple MPU6050 Calibration Sketch - No External Libraries Required
  *
- * This sketch calibrates the MPU6050 accelerometer and gyroscope offsets.
- * Run this sketch with your MPU6050 connected to determine the correct
- * offset values for your specific sensor, then copy these values to your
- * main SpaceWizard transmitter code.
+ * This sketch calibrates the MPU6050 accelerometer and gyroscope offsets
+ * using only the standard Arduino Wire library. Perfect for cases where
+ * you can't install the I2Cdev/MPU6050 libraries.
  *
  * Hardware Setup:
  * - Arduino Nano/UNO
  * - MPU6050 connected via I2C (A4/A5)
- * - Connect VCC to 5V, GND to GND
+ * - Connect VCC to 5V, GND to GND, SDA to A4, SCL to A5
  * - Place sensor on a flat, stable surface during calibration
  *
  * Usage:
@@ -17,29 +16,48 @@
  * 2. Open Serial Monitor (115200 baud)
  * 3. Wait for calibration to complete (about 30 seconds)
  * 4. Note the offset values displayed
- * 5. Copy these values to your main transmitter code
+ * 5. Copy these values to your main SpaceWizard transmitter code
  *
  * Based on: https://github.com/jrowberg/i2cdevlib/tree/master/Arduino/MPU6050/examples/IMU_Zero
+ * Simplified for standard Arduino IDE without external libraries
  */
 
-#include "I2Cdev.h"
-#include "MPU6050_6Axis_MotionApps20.h"
+#include <Wire.h>
 
-// Arduino Wire library is required if I2Cdev I2CDEV_ARDUINO_WIRE implementation
-// is used in I2Cdev.h
-#if I2CDEV_IMPLEMENTATION == I2CDEV_ARDUINO_WIRE
-    #include "Wire.h"
-#endif
+// MPU6050 I2C address
+#define MPU6050_ADDR 0x68
 
-MPU6050 mpu;
+// MPU6050 registers
+#define MPU6050_SMPLRT_DIV   0x19
+#define MPU6050_CONFIG       0x1A
+#define MPU6050_GYRO_CONFIG  0x1B
+#define MPU6050_ACCEL_CONFIG 0x1C
+#define MPU6050_ACCEL_XOUT_H 0x3B
+#define MPU6050_GYRO_XOUT_H  0x43
+#define MPU6050_PWR_MGMT_1   0x6B
+#define MPU6050_PWR_MGMT_2   0x6C
+
+// MPU6050 offset registers
+#define MPU6050_XA_OFFSET_H  0x06
+#define MPU6050_XA_OFFSET_L  0x07
+#define MPU6050_YA_OFFSET_H  0x08
+#define MPU6050_YA_OFFSET_L  0x09
+#define MPU6050_ZA_OFFSET_H  0x0A
+#define MPU6050_ZA_OFFSET_L  0x0B
+#define MPU6050_XG_OFFSET_H  0x13
+#define MPU6050_XG_OFFSET_L  0x14
+#define MPU6050_YG_OFFSET_H  0x15
+#define MPU6050_YG_OFFSET_L  0x16
+#define MPU6050_ZG_OFFSET_H  0x17
+#define MPU6050_ZG_OFFSET_L  0x18
 
 // MPU6050 offset values (these will be calculated)
-int ax_offset = 0;
-int ay_offset = 0;
-int az_offset = 0;
-int gx_offset = 0;
-int gy_offset = 0;
-int gz_offset = 0;
+int16_t ax_offset = 0;
+int16_t ay_offset = 0;
+int16_t az_offset = 0;
+int16_t gx_offset = 0;
+int16_t gy_offset = 0;
+int16_t gz_offset = 0;
 
 // Calibration settings
 #define CALIBRATION_SAMPLES 1000  // Number of samples to average
@@ -52,28 +70,22 @@ void setup() {
 
     // Initialize I2C
     Wire.begin();
-    TWBR = 12; // Set I2C speed to 400kHz for 16MHz CPU
 
-    Serial.println("MPU6050 Calibration Starting...");
+    Serial.println("Simple MPU6050 Calibration Starting...");
     Serial.println("Place sensor on a flat, stable surface.");
     Serial.println("DO NOT MOVE the sensor during calibration!");
     Serial.println();
 
     // Initialize MPU6050
     Serial.print("Initializing MPU6050...");
-    mpu.initialize();
-
-    if (mpu.testConnection()) {
+    if (initializeMPU6050()) {
         Serial.println(" SUCCESS");
     } else {
         Serial.println(" FAILED");
         Serial.println("Check your MPU6050 connections and try again.");
+        Serial.println("Make sure SDA is connected to A4 and SCL to A5.");
         while (1); // Halt execution
     }
-
-    // Set MPU6050 to most sensitive range for calibration
-    mpu.setFullScaleAccelRange(MPU6050_ACCEL_FS_2);  // ±2g
-    mpu.setFullScaleGyroRange(MPU6050_GYRO_FS_250);  // ±250°/s
 
     Serial.println("Calibrating accelerometer and gyroscope...");
     Serial.println("This will take approximately 30 seconds...");
@@ -128,6 +140,47 @@ void loop() {
     delay(1000);
 }
 
+bool initializeMPU6050() {
+    // Wake up MPU6050
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(MPU6050_PWR_MGMT_1);
+    Wire.write(0x00); // Wake up
+    if (Wire.endTransmission(true) != 0) return false;
+
+    // Set sample rate to 1kHz
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(MPU6050_SMPLRT_DIV);
+    Wire.write(0x00);
+    if (Wire.endTransmission(true) != 0) return false;
+
+    // Set gyro to ±250°/s
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(MPU6050_GYRO_CONFIG);
+    Wire.write(0x00);
+    if (Wire.endTransmission(true) != 0) return false;
+
+    // Set accel to ±2g
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(MPU6050_ACCEL_CONFIG);
+    Wire.write(0x00);
+    if (Wire.endTransmission(true) != 0) return false;
+
+    // Test connection by reading WHO_AM_I register
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(0x75); // WHO_AM_I register
+    if (Wire.endTransmission(false) != 0) return false;
+
+    Wire.requestFrom(MPU6050_ADDR, 1);
+    if (Wire.available()) {
+        uint8_t whoAmI = Wire.read();
+        if (whoAmI == 0x68) { // MPU6050 should return 0x68
+            return true;
+        }
+    }
+
+    return false;
+}
+
 void calibrateAccelerometer() {
     Serial.println("Calibrating accelerometer...");
 
@@ -138,7 +191,7 @@ void calibrateAccelerometer() {
     // Collect samples
     for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
         int16_t ax, ay, az;
-        mpu.getAcceleration(&ax, &ay, &az);
+        readAccelerometer(&ax, &ay, &az);
 
         ax_sum += ax;
         ay_sum += ay;
@@ -165,7 +218,7 @@ void calibrateGyroscope() {
     // Collect samples
     for (int i = 0; i < CALIBRATION_SAMPLES; i++) {
         int16_t gx, gy, gz;
-        mpu.getRotation(&gx, &gy, &gz);
+        readGyroscope(&gx, &gy, &gz);
 
         gx_sum += gx;
         gy_sum += gy;
@@ -180,6 +233,34 @@ void calibrateGyroscope() {
     gz_offset = gz_sum / CALIBRATION_SAMPLES;
 
     Serial.println("Gyroscope calibration complete.");
+}
+
+void readAccelerometer(int16_t *ax, int16_t *ay, int16_t *az) {
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(MPU6050_ACCEL_XOUT_H);
+    Wire.endTransmission(false);
+
+    Wire.requestFrom(MPU6050_ADDR, 6);
+
+    if (Wire.available() >= 6) {
+        *ax = (Wire.read() << 8) | Wire.read();
+        *ay = (Wire.read() << 8) | Wire.read();
+        *az = (Wire.read() << 8) | Wire.read();
+    }
+}
+
+void readGyroscope(int16_t *gx, int16_t *gy, int16_t *gz) {
+    Wire.beginTransmission(MPU6050_ADDR);
+    Wire.write(MPU6050_GYRO_XOUT_H);
+    Wire.endTransmission(false);
+
+    Wire.requestFrom(MPU6050_ADDR, 6);
+
+    if (Wire.available() >= 6) {
+        *gx = (Wire.read() << 8) | Wire.read();
+        *gy = (Wire.read() << 8) | Wire.read();
+        *gz = (Wire.read() << 8) | Wire.read();
+    }
 }
 
 void displayOffsets() {

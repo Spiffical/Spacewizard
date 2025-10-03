@@ -2,159 +2,33 @@
   "comment": "SpaceWizard MPU6050 to MaestroDMX OSC Configuration",
   "description": "Maps MPU6050 sensor data to MaestroDMX OSC addresses for lighting control",
 
-  "mpu6050_properties": {
-    "accelerometer_x": {
-      "enabled": true,
-      "description": "X-axis acceleration (g-force, -16g to +16g)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/brightness",
-          "scale_min": -2.0,
-          "scale_max": 2.0,
-          "invert": false,
-          "description": "Left-right tilt controls brightness"
-        }
-      ]
-    },
-    "accelerometer_y": {
-      "enabled": true,
-      "description": "Y-axis acceleration (g-force, -16g to +16g)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/speed",
-          "scale_min": -2.0,
-          "scale_max": 2.0,
-          "invert": false,
-          "description": "Forward-back tilt controls animation speed"
-        }
-      ]
-    },
-    "accelerometer_z": {
-      "enabled": true,
-      "description": "Z-axis acceleration (g-force, -16g to +16g)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/global/brightness",
-          "scale_min": -2.0,
-          "scale_max": 2.0,
-          "invert": false,
-          "description": "Up-down motion controls global brightness"
-        },
-        {
-          "osc_address": "/triggers/strobe",
-          "scale_min": 1.5,
-          "scale_max": 2.0,
-          "invert": false,
-          "threshold": true,
-          "description": "Sharp upward movements trigger strobe"
-        }
-      ]
-    },
-    "gyroscope_x": {
-      "enabled": true,
-      "description": "X-axis angular velocity (degrees/second, -2000 to +2000)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/energy",
-          "scale_min": -500.0,
-          "scale_max": 500.0,
-          "invert": false,
-          "description": "Roll rotation controls energy parameter"
-        }
-      ]
-    },
-    "gyroscope_y": {
-      "enabled": true,
-      "description": "Y-axis angular velocity (degrees/second, -2000 to +2000)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/excitement",
-          "scale_min": -500.0,
-          "scale_max": 500.0,
-          "invert": false,
-          "description": "Pitch rotation controls excitement"
-        }
-      ]
-    },
-    "gyroscope_z": {
-      "enabled": true,
-      "description": "Z-axis angular velocity (degrees/second, -2000 to +2000)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/motion/speed",
-          "scale_min": -1000.0,
-          "scale_max": 1000.0,
-          "invert": false,
-          "description": "Yaw rotation controls motion speed"
-        }
-      ]
-    },
-    "orientation_yaw": {
-      "enabled": true,
-      "description": "Yaw angle (degrees, 0-360)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/shape",
-          "scale_min": 0.0,
-          "scale_max": 360.0,
-          "invert": false,
-          "description": "Rotation around Z-axis controls pattern shape"
-        }
-      ]
-    },
-    "orientation_pitch": {
-      "enabled": true,
-      "description": "Pitch angle (degrees, -90 to +90)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/variance",
-          "scale_min": -90.0,
-          "scale_max": 90.0,
-          "invert": false,
-          "description": "Up-down tilt controls pattern variance"
-        }
-      ]
-    },
-    "orientation_roll": {
-      "enabled": true,
-      "description": "Roll angle (degrees, -90 to +90)",
-      "maestro_mapping": [
-        {
-          "osc_address": "/live/1/decay",
-          "scale_min": -90.0,
-          "scale_max": 90.0,
-          "invert": false,
-          "description": "Left-right tilt controls pattern decay"
-        }
-      ]
-    },
-    "world_acceleration_x": {
-      "enabled": false,
-      "description": "World-frame X acceleration (gravity compensated)",
-      "maestro_mapping": []
-    },
-    "world_acceleration_y": {
-      "enabled": false,
-      "description": "World-frame Y acceleration (gravity compensated)",
-      "maestro_mapping": []
-    },
-    "world_acceleration_z": {
-      "enabled": false,
-      "description": "World-frame Z acceleration (gravity compensated)",
-      "maestro_mapping": []
-    },
-    "impact_detection": {
-      "enabled": true,
-      "description": "Sudden acceleration changes for impact effects",
-      "maestro_mapping": [
-        {
-          "osc_address": "/triggers/strobe",
-          "threshold": 800,
-          "cooldown_ms": 500,
-          "description": "Impact detection triggers strobe effects"
-        }
-      ]
-    }
+  "osc_mappings": [
+    { "enabled": true,  "source": "accel_magnitude",          "osc_address": "/global/brightness",   "scale_min": 0.8,    "scale_max": 2.0,    "invert": false, "description": "Overall motion -> global brightness" },
+
+    { "enabled": false, "source": "accelerometer_x",          "osc_address": "/live/1/brightness",   "scale_min": -2.0,   "scale_max": 2.0,    "invert": false, "description": "Accel X -> brightness" },
+    { "enabled": false, "source": "accelerometer_y",          "osc_address": "/live/1/variance",     "scale_min": -2.0,   "scale_max": 2.0,    "invert": false, "description": "Accel Y -> variance" },
+    { "enabled": false, "source": "accelerometer_z",          "osc_address": "/live/1/decay",        "scale_min": -2.0,   "scale_max": 2.0,    "invert": false, "description": "Accel Z -> decay" },
+
+    { "enabled": true,  "source": "gyroscope_x",              "osc_address": "/live/1/energy",       "scale_min": -500.0, "scale_max": 500.0,  "invert": false, "description": "Roll rate -> energy" },
+    { "enabled": true,  "source": "gyroscope_y",              "osc_address": "/live/1/excitement",   "scale_min": -500.0, "scale_max": 500.0,  "invert": false, "description": "Pitch rate -> excitement" },
+    { "enabled": true,  "source": "gyroscope_z",              "osc_address": "/live/1/speed",        "scale_min": -500.0, "scale_max": 500.0,  "invert": false, "description": "Yaw rate -> speed" },
+    { "enabled": false, "source": "abs:gyroscope_z",          "osc_address": "/live/1/speed",        "scale_min": 0.0,    "scale_max": 500.0,  "invert": false, "description": "Absolute yaw rate -> speed (enable if preferred)" },
+    { "enabled": false, "source": "gyro_magnitude",            "osc_address": "/live/1/motion/speed", "scale_min": 0.0,    "scale_max": 500.0,  "invert": false, "description": "Gyro vector magnitude -> motion speed" },
+
+    { "enabled": true,  "source": "orientation_yaw",          "osc_address": "/live/1/shape",        "scale_min": 0.0,    "scale_max": 360.0,  "invert": false, "description": "Yaw angle -> shape" },
+    { "enabled": true,  "source": "orientation_pitch",        "osc_address": "/live/1/variance",     "scale_min": -90.0,  "scale_max": 90.0,   "invert": false, "description": "Pitch angle -> variance" },
+    { "enabled": true,  "source": "orientation_roll",         "osc_address": "/live/1/decay",        "scale_min": -90.0,  "scale_max": 90.0,   "invert": false, "description": "Roll angle -> decay" },
+
+    { "enabled": false, "source": "deviation_from_baseline_g", "osc_address": "/live/1/energy",       "scale_min": 0.0,    "scale_max": 1.0,    "invert": false, "description": "Baseline deviation -> energy" },
+
+    { "enabled": true,  "source": "impact_triggered",         "osc_address": "/triggers/strobe",    "threshold": true,                         "description": "Impact trigger -> strobe" }
+  ],
+
+  "impact_detection": {
+    "enabled": true,
+    "threshold": 8000,
+    "cooldown_ms": 2000,
+    "description": "Sudden acceleration changes beyond baseline for impact effects"
   },
 
   "maestro_settings": {
@@ -174,16 +48,16 @@
     "accel_range": 2,
     "gyro_range": 250,
     "mpu6050_gyro_offsets": {
-      "x": 0,
-      "y": 0,
+      "x": -465,
+      "y": 90,
       "z": 0,
-      "note": "Run mpu6050_calibration.ino to determine these values for your specific sensor"
+      "note": "Offsets copied from transmitter calibration results"
     },
     "mpu6050_accel_offsets": {
-      "x": 0,
-      "y": 0,
-      "z": 0,
-      "note": "Run mpu6050_calibration.ino to determine these values for your specific sensor"
+      "x": -230,
+      "y": -696,
+      "z": 81,
+      "note": "Offsets copied from transmitter calibration results"
     }
   },
 

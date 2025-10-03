@@ -10,11 +10,12 @@
  * - nRF24L01 radio transceiver
  *
  * Serial Output Format (one line per packet):
- * AX=0.12 AY=0.03 AZ=0.98 GX=-10.2 GY=4.1 GZ=120.0 IMP=0
+ * AX=0.12 AY=0.03 AZ=0.98 GX=-10.2 GY=4.1 GZ=120.0 YAW=45.0 PITCH=30.0 ROLL=-15.0 IMP=0
  *
  * Where:
  * - AX, AY, AZ: accelerometer values (g-force)
  * - GX, GY, GZ: gyroscope values (degrees/second)
+ * - YAW, PITCH, ROLL: orientation angles (degrees)
  * - IMP: impact flag (0/1)
  */
 
@@ -44,8 +45,8 @@ const uint64_t RADIO_PIPES[3] = {
 RF24 radio(RADIO_CE_PIN, RADIO_CS_PIN);
 
 // Received data structure from transmitter
-// [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact, buttonState]
-int16_t receivedData[11];
+// [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
+int16_t receivedData[10];
 
 // Motion data (properly scaled from received values)
 float accelX = 0.0;        // X-axis acceleration (g-force, -16g to +16g)
@@ -58,7 +59,6 @@ float yawAngle = 0.0;      // Yaw angle (degrees, 0-360)
 float pitchAngle = 0.0;    // Pitch angle (degrees, -90 to +90)
 float rollAngle = 0.0;     // Roll angle (degrees, -90 to +90)
 bool impactDetected = false;  // Impact/shock detection flag
-int buttonState = 0;       // Button state (combination of hold and press modes)
 
 // ================================================================
 // ===                      SETUP FUNCTION                      ===
@@ -136,7 +136,7 @@ void processRadioData() {
 
 /*
  * Convert raw received data to proper units for OSC mapping.
- * Expected data structure: [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact, buttonState]
+ * Expected data structure: [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
  */
 void convertReceivedData() {
     // Raw accelerometer data (16-bit signed integers from MPU6050)
@@ -161,14 +161,11 @@ void convertReceivedData() {
 
     // Impact detection (boolean flag from transmitter)
     impactDetected = (receivedData[9] != 0);
-
-    // Button state (combination of hold and press modes)
-    buttonState = receivedData[10];
 }
 
 /*
  * Output motion data in the format expected by the Python OSC bridge.
- * Format: AX=0.12 AY=0.03 AZ=0.98 GX=-10.2 GY=4.1 GZ=120.0 YAW=45.0 PITCH=30.0 ROLL=-15.0 IMP=0 BTN=0
+ * Format: AX=0.12 AY=0.03 AZ=0.98 GX=-10.2 GY=4.1 GZ=120.0 YAW=45.0 PITCH=30.0 ROLL=-15.0 IMP=0
  */
 void printSerialData() {
     Serial.print("AX=");
@@ -191,7 +188,5 @@ void printSerialData() {
     Serial.print(rollAngle, 2);
     Serial.print(" IMP=");
     Serial.print(impactDetected ? 1 : 0);
-    Serial.print(" BTN=");
-    Serial.print(buttonState);
     Serial.println();
 }
