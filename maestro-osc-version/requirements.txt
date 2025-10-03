@@ -1,0 +1,10 @@
+# SpaceWizard Maestro OSC Bridge - Python Dependencies
+
+# Serial communication with Arduino
+pyserial>=3.5
+
+# OSC (Open Sound Control) communication with MaestroDMX
+python-osc>=1.8.0
+
+# Optional: For better serial port detection on some systems
+# pyusb>=1.2.0
