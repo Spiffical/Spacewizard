@@ -60,18 +60,19 @@ const uint64_t RADIO_PIPES[3] = {
 
 // MPU6050 calibration offsets (these values are specific to your sensor)
 // Run calibration first to get your sensor's values!
-#define MPU_GYRO_X_OFFSET   -465  // Your calibrated gyro X offset
-#define MPU_GYRO_Y_OFFSET   90    // Your calibrated gyro Y offset
-#define MPU_GYRO_Z_OFFSET   0     // Your calibrated gyro Z offset
-#define MPU_ACCEL_Z_OFFSET  81    // Your calibrated accel Z offset
-#define MPU_ACCEL_X_OFFSET  -230  // Your calibrated accel X offset
-#define MPU_ACCEL_Y_OFFSET  -696  // Your calibrated accel Y offset
+#define MPU_GYRO_X_OFFSET   -465
+#define MPU_GYRO_Y_OFFSET   90
+#define MPU_GYRO_Z_OFFSET   0
+#define MPU_ACCEL_Z_OFFSET  81
+#define MPU_ACCEL_X_OFFSET  -230
+#define MPU_ACCEL_Y_OFFSET  -696
+#define QUATERNION_SCALE    16384.0f
 
 // ===== GLOBAL VARIABLES =====
 
 // Radio communication
 RF24 radio(RADIO_CE_PIN, RADIO_CS_PIN);
-int16_t transmitData[10];  // [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
+int16_t transmitData[14];  // [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, qW, qX, qY, qZ, impact]
 
 // Note: No button state management needed for OSC version
 
@@ -117,6 +118,18 @@ volatile bool mpuInterrupt = false;  // Indicates whether MPU interrupt pin has 
  */
 void dmpDataReady() {
     mpuInterrupt = true;
+}
+
+int16_t scaleQuaternionComponent(float component) {
+    long scaled = (long)(component * QUATERNION_SCALE);
+
+    if (scaled > 32767L) {
+        scaled = 32767L;
+    } else if (scaled < -32768L) {
+        scaled = -32768L;
+    }
+
+    return (int16_t)scaled;
 }
 
 // ================================================================
@@ -279,7 +292,7 @@ void processMPU6050Data() {
 
 /*
  * Prepare and transmit motion data via radio.
- * Data format: [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
+ * Data format: [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, qW, qX, qY, qZ, impact]
  */
 void transmitMotionData() {
     // Prepare data packet with all required values (no button state for OSC version)
@@ -292,17 +305,18 @@ void transmitMotionData() {
     transmitData[6] = (int16_t)yawAngle;     // Yaw angle (degrees, 0-360)
     transmitData[7] = (int16_t)pitchAngle;   // Pitch angle (degrees, -90 to +90)
     transmitData[8] = (int16_t)rollAngle;    // Roll angle (degrees, -90 to +90)
-    transmitData[9] = impactDetected ? 1 : 0; // Impact detection flag
+    transmitData[9] = scaleQuaternionComponent(quaternion.w);
+    transmitData[10] = scaleQuaternionComponent(quaternion.x);
+    transmitData[11] = scaleQuaternionComponent(quaternion.y);
+    transmitData[12] = scaleQuaternionComponent(quaternion.z);
+    transmitData[13] = impactDetected ? 1 : 0; // Impact detection flag
 
-    // Transmit data on all three pipes for redundancy
-    radio.openWritingPipe(RADIO_PIPES[0]);
-    radio.write(transmitData, sizeof(transmitData));
-
-    radio.openWritingPipe(RADIO_PIPES[1]);
-    radio.write(transmitData, sizeof(transmitData));
-
-    radio.openWritingPipe(RADIO_PIPES[2]);
-    radio.write(transmitData, sizeof(transmitData));
+    // Try the primary pipe first and only fall back if that write fails.
+    bool sent = false;
+    for (uint8_t pipeIndex = 0; pipeIndex < 3 && !sent; pipeIndex++) {
+        radio.openWritingPipe(RADIO_PIPES[pipeIndex]);
+        sent = radio.write(transmitData, sizeof(transmitData));
+    }
 
     // Debug output
     #ifdef DEBUG

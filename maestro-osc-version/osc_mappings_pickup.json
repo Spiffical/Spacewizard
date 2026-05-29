@@ -1,0 +1,108 @@
+{
+  "comment": "SpaceWizard pickup interaction profile (recommended)",
+  "mapping_constants": {
+    "sources": {
+      "interaction_gate": {
+        "source": "interaction_gate",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "description": "Hard on/off gate from pickup interaction mode"
+      },
+      "interaction_activity": {
+        "source": "interaction_activity",
+        "scale_min": 0.0,
+        "scale_max": 2.0,
+        "description": "Normalized amount of motion while active"
+      },
+      "pickup_event": {
+        "source": "pickup_triggered",
+        "threshold": true,
+        "description": "One-shot trigger when object is picked up"
+      },
+      "gyro_z_abs_fast": {
+        "source": "abs:gyroscope_z",
+        "scale_min": 0.0,
+        "scale_max": 45.0,
+        "description": "Spin rate for speed/motion"
+      },
+      "gyro_mag_active": {
+        "source": "gyro_magnitude",
+        "scale_min": 2.0,
+        "scale_max": 40.0,
+        "description": "Overall rotational intensity"
+      },
+      "pitch_expressive": {
+        "source": "orientation_pitch",
+        "scale_min": -90.0,
+        "scale_max": 90.0,
+        "description": "Tilt forward/back for variance"
+      },
+      "roll_expressive": {
+        "source": "orientation_roll",
+        "scale_min": -90.0,
+        "scale_max": 90.0,
+        "description": "Tilt side/side for decay"
+      }
+    },
+    "osc_addresses": {
+      "global_brightness": "/global/brightness",
+      "live_energy": "/live/1/energy",
+      "live_motion_speed": "/live/1/motion/speed",
+      "live_excitement": "/live/1/excitement",
+      "live_variance": "/live/1/variance",
+      "live_decay": "/live/1/decay",
+      "trigger_effect": "/triggers/effect",
+      "trigger_strobe": "/triggers/strobe"
+    }
+  },
+  "osc_routes": [
+    {
+      "enabled": true,
+      "source": "interaction_gate",
+      "osc": "global_brightness",
+      "description": "Lights fully off at rest, on when picked up"
+    },
+    {
+      "enabled": true,
+      "source": "interaction_activity",
+      "osc": "live_energy",
+      "description": "Energy rises with movement"
+    },
+    {
+      "enabled": true,
+      "source": "gyro_z_abs_fast",
+      "osc": "live_motion_speed",
+      "description": "Twisting object controls motion speed"
+    },
+    {
+      "enabled": true,
+      "source": "gyro_mag_active",
+      "osc": "live_excitement",
+      "description": "Overall rotational intensity controls excitement"
+    },
+    {
+      "enabled": true,
+      "source": "pitch_expressive",
+      "osc": "live_variance",
+      "description": "Pitch changes pattern variance"
+    },
+    {
+      "enabled": false,
+      "source": "roll_expressive",
+      "osc": "live_decay",
+      "description": "Roll changes decay/trailing"
+    },
+    {
+      "enabled": true,
+      "source": "pickup_event",
+      "osc": "trigger_effect",
+      "description": "Kick an effect when object is first picked up"
+    },
+    {
+      "enabled": false,
+      "source": "pickup_event",
+      "osc": "trigger_strobe",
+      "description": "Optional pickup flash"
+    }
+  ]
+}

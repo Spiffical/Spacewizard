@@ -10,12 +10,14 @@
  * - nRF24L01 radio transceiver
  *
  * Serial Output Format (one line per packet):
- * AX=0.12 AY=0.03 AZ=0.98 GX=-10.2 GY=4.1 GZ=120.0 YAW=45.0 PITCH=30.0 ROLL=-15.0 IMP=0
+ * FMT=2 AX=123 AY=45 AZ=16070 GX=-1336 GY=537 GZ=15720 YAW=45 PITCH=30 ROLL=-15 QW=16351 QX=196 QY=-721 QZ=524 IMP=0
  *
  * Where:
- * - AX, AY, AZ: accelerometer values (g-force)
- * - GX, GY, GZ: gyroscope values (degrees/second)
+ * - FMT: serial format version for the Python parser
+ * - AX, AY, AZ: raw accelerometer counts (divide by 16384 for g-force)
+ * - GX, GY, GZ: raw gyroscope counts (divide by 131 for degrees/second)
  * - YAW, PITCH, ROLL: orientation angles (degrees)
+ * - QW, QX, QY, QZ: raw quaternion counts (divide by 16384)
  * - IMP: impact flag (0/1)
  */
 
@@ -27,7 +29,7 @@
 // Radio Configuration
 #define RADIO_CE_PIN         9
 #define RADIO_CS_PIN         10
-#define RADIO_PAYLOAD_SIZE   16
+#define RADIO_PAYLOAD_SIZE   32
 
 // Communication pipes (must match transmitter addresses)
 const uint64_t RADIO_PIPES[3] = {
@@ -37,7 +39,8 @@ const uint64_t RADIO_PIPES[3] = {
 };
 
 // Serial Configuration
-#define SERIAL_BAUD_RATE     115200
+#define SERIAL_BAUD_RATE     230400
+#define SERIAL_FORMAT_VERSION 2
 
 // ===== GLOBAL VARIABLES =====
 
@@ -45,20 +48,8 @@ const uint64_t RADIO_PIPES[3] = {
 RF24 radio(RADIO_CE_PIN, RADIO_CS_PIN);
 
 // Received data structure from transmitter
-// [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
-int16_t receivedData[10];
-
-// Motion data (properly scaled from received values)
-float accelX = 0.0;        // X-axis acceleration (g-force, -16g to +16g)
-float accelY = 0.0;        // Y-axis acceleration (g-force, -16g to +16g)
-float accelZ = 0.0;        // Z-axis acceleration (g-force, -16g to +16g)
-float gyroX = 0.0;         // X-axis rotation (degrees/second, -2000 to +2000)
-float gyroY = 0.0;         // Y-axis rotation (degrees/second, -2000 to +2000)
-float gyroZ = 0.0;         // Z-axis rotation (degrees/second, -2000 to +2000)
-float yawAngle = 0.0;      // Yaw angle (degrees, 0-360)
-float pitchAngle = 0.0;    // Pitch angle (degrees, -90 to +90)
-float rollAngle = 0.0;     // Roll angle (degrees, -90 to +90)
-bool impactDetected = false;  // Impact/shock detection flag
+// [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, qW, qX, qY, qZ, impact]
+int16_t receivedData[14];
 
 // ================================================================
 // ===                      SETUP FUNCTION                      ===
@@ -78,7 +69,7 @@ void setup() {
 void initializeSerial() {
     Serial.begin(SERIAL_BAUD_RATE);
     Serial.println("SpaceWizard OSC Receiver Starting...");
-    Serial.println("Serial format: AX= AY= AZ= GX= GY= GZ= IMP=");
+    Serial.println("Serial format: FMT=2 AX= AY= AZ= GX= GY= GZ= YAW= PITCH= ROLL= QW= QX= QY= QZ= IMP=");
 }
 
 /*
@@ -120,73 +111,51 @@ void loop() {
  */
 void processRadioData() {
     if (radio.available()) {
-        // Read motion data from transmitter
-        radio.read(receivedData, sizeof(receivedData));
-
-        // Convert received integer values to meaningful units
-        convertReceivedData();
+        // Drop stale queued packets so the bridge always sees the newest pose.
+        do {
+            radio.read(receivedData, sizeof(receivedData));
+        } while (radio.available());
 
         // Output data in the format expected by Python script
         printSerialData();
-
-        // Small delay to prevent overwhelming the serial output
-        delay(25);  // ~40 Hz update rate
     }
 }
 
 /*
- * Convert raw received data to proper units for OSC mapping.
- * Expected data structure: [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, impact]
- */
-void convertReceivedData() {
-    // Raw accelerometer data (16-bit signed integers from MPU6050)
-    // Scale to g-force using MPU6050 sensitivity (16384 LSB/g for ±2g range)
-    accelX = receivedData[0] / 16384.0;  // Convert to g-force (-2g to +2g)
-    accelY = receivedData[1] / 16384.0;  // Convert to g-force (-2g to +2g)
-    accelZ = receivedData[2] / 16384.0;  // Convert to g-force (-2g to +2g)
-
-    // Gyroscope data (degrees/second)
-    // Scale using MPU6050 sensitivity (131 LSB/°/s for ±250°/s range)
-    gyroX = receivedData[3] / 131.0;     // Convert to °/s (-250 to +250)
-    gyroY = receivedData[4] / 131.0;     // Convert to °/s (-250 to +250)
-    gyroZ = receivedData[5] / 131.0;     // Convert to °/s (-250 to +250)
-
-    // Orientation angles (from DMP calculations)
-    // These are already in degrees, just need proper range conversion
-    yawAngle = receivedData[6];          // 0-360 degrees
-    if (yawAngle < 0) yawAngle += 360;   // Ensure positive range
-
-    pitchAngle = receivedData[7];        // -90 to +90 degrees
-    rollAngle = receivedData[8];         // -90 to +90 degrees
-
-    // Impact detection (boolean flag from transmitter)
-    impactDetected = (receivedData[9] != 0);
-}
-
-/*
- * Output motion data in the format expected by the Python OSC bridge.
- * Format: AX=0.12 AY=0.03 AZ=0.98 GX=-10.2 GY=4.1 GZ=120.0 YAW=45.0 PITCH=30.0 ROLL=-15.0 IMP=0
+ * Output motion data in a compact format for the Python OSC bridge.
+ * Integer serial printing is much cheaper than float-to-string formatting on AVR,
+ * so the bridge parser rescales these raw counts back to engineering units.
  */
 void printSerialData() {
-    Serial.print("AX=");
-    Serial.print(accelX, 4);      // 4 decimal places for precision
+    Serial.print("FMT=");
+    Serial.print(SERIAL_FORMAT_VERSION);
+    Serial.print(" AX=");
+    Serial.print(receivedData[0]);
     Serial.print(" AY=");
-    Serial.print(accelY, 4);
+    Serial.print(receivedData[1]);
     Serial.print(" AZ=");
-    Serial.print(accelZ, 4);
+    Serial.print(receivedData[2]);
     Serial.print(" GX=");
-    Serial.print(gyroX, 2);       // 2 decimal places for gyro
+    Serial.print(receivedData[3]);
     Serial.print(" GY=");
-    Serial.print(gyroY, 2);
+    Serial.print(receivedData[4]);
     Serial.print(" GZ=");
-    Serial.print(gyroZ, 2);
+    Serial.print(receivedData[5]);
     Serial.print(" YAW=");
-    Serial.print(yawAngle, 2);
+    Serial.print(receivedData[6]);
     Serial.print(" PITCH=");
-    Serial.print(pitchAngle, 2);
+    Serial.print(receivedData[7]);
     Serial.print(" ROLL=");
-    Serial.print(rollAngle, 2);
+    Serial.print(receivedData[8]);
+    Serial.print(" QW=");
+    Serial.print(receivedData[9]);
+    Serial.print(" QX=");
+    Serial.print(receivedData[10]);
+    Serial.print(" QY=");
+    Serial.print(receivedData[11]);
+    Serial.print(" QZ=");
+    Serial.print(receivedData[12]);
     Serial.print(" IMP=");
-    Serial.print(impactDetected ? 1 : 0);
+    Serial.print(receivedData[13] != 0 ? 1 : 0);
     Serial.println();
 }

@@ -70,12 +70,12 @@ This repository contains two complete implementations of the SpaceWizard system:
 4. **Wait ~30 seconds** for calibration to complete - sensor must remain completely still
 5. **Copy offset values** to your transmitter code in both versions:
    ```cpp
-   mpu.setXAccelOffset(-1449);  // Replace with your calibrated values
-   mpu.setYAccelOffset(2673);   // Replace with your calibrated values
-   mpu.setZAccelOffset(692);    // Replace with your calibrated values
-   mpu.setXGyroOffset(93);      // Replace with your calibrated values
-   mpu.setYGyroOffset(21);      // Replace with your calibrated values
-   mpu.setZGyroOffset(-31);     // Replace with your calibrated values
+    #define MPU_ACCEL_X_OFFSET  <your calibrated accel x offset>
+    #define MPU_ACCEL_Y_OFFSET  <your calibrated accel y offset>
+    #define MPU_ACCEL_Z_OFFSET  <your calibrated accel z offset>
+    #define MPU_GYRO_X_OFFSET   <your calibrated gyro x offset>
+    #define MPU_GYRO_Y_OFFSET   <your calibrated gyro y offset>
+    #define MPU_GYRO_Z_OFFSET   <your calibrated gyro z offset>
    ```
 
 **Important Notes:**
@@ -86,6 +86,42 @@ This repository contains two complete implementations of the SpaceWizard system:
 - Values are different for each sensor - never reuse values from another MPU6050
 
 ## Quick Start
+
+### One-Command Live Rig
+
+If you want the full local SpaceWizard live rig from the repo root, use:
+
+```bash
+./spacewizard_live.sh
+```
+
+To stop it cleanly:
+
+```bash
+./spacewizard_live.sh stop
+```
+
+You can still pass the existing live-mode options through the same wrapper:
+
+```bash
+./spacewizard_live.sh start --mode ambient-flow
+./spacewizard_live.sh start --mode ambient-flow --ambient-variant forest
+./spacewizard_live.sh start --mode wow-voice
+```
+
+### One-Command Demo Mode
+
+If you want the no-candle demo with just the SuperCollider ambient scene and GUI, run:
+
+```bash
+./spacewizard_demo.sh
+```
+
+To stop it cleanly:
+
+```bash
+./spacewizard_demo.sh stop
+```
 
 ### For LED Version
 1. **Calibrate MPU6050** (see Calibration section above)
