@@ -17,6 +17,7 @@ from bridge import metrics
 from bridge.config import load_config
 from bridge.serial_input import parse_serial_line
 from bridge.reliability import InputFreshness, RecoveringOSCClient, RecoveringSerial
+from pythonosc.osc_bundle import OscBundle
 from pythonosc.osc_message import OscMessage
 
 CONFIG = load_config(str(ROOT / 'config/bridge.json')).config
@@ -108,6 +109,51 @@ class MotionTests(unittest.TestCase):
         send_synth_control_messages({'interaction_active': False, 'input_valid': False}, client)
         self.assertEqual(client.send_message.call_args[0][1][6:], [0.0, 0.0, 0.0])
 
+    def test_public_osc_stream_frames_units_rate_and_idle(self):
+        from bridge.public_osc import PublicOscStream
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind(('127.0.0.1', 0))
+        sock.settimeout(1)
+        stream = PublicOscStream({'public_osc': {'rate_hz': 10}}, broadcast=False,
+                                 extra_targets=[f'127.0.0.1:{sock.getsockname()[1]}'])
+        data = dict(frame(gx=5.0), QW=1.0, QX=0.0, QY=0.0, QZ=0.0)
+        moving = {'interaction_active': True, 'interaction_activity': 0.5, 'song_energy': 0.75,
+                  'synth_pitch_deg': 30.0, 'synth_roll_deg': 190.0, 'synth_yaw_norm': 0.25,
+                  'pickup_triggered': True}
+        self.assertTrue(stream.send_frame(data, moving, now=10.0))
+        self.assertFalse(stream.send_frame(data, dict(moving, pickup_triggered=False), now=10.05))
+        got = {}
+        for _ in range(2):  # pickup event, then the frame
+            for msg in OscBundle(sock.recv(65535)):
+                got[msg.address] = msg.params
+        p = '/spacewizard/candle/'
+        self.assertEqual((got[p + 'pickup'], got[p + 'valid'], got[p + 'active']), ([1], [1], [1]))
+        self.assertAlmostEqual(got[p + 'energy'][0], 0.75, places=5)
+        pitch, roll, yaw = got[p + 'orientation']
+        self.assertAlmostEqual(pitch, 30.0, places=3)
+        self.assertAlmostEqual(roll, -170.0, places=3)
+        self.assertAlmostEqual(yaw, 90.0, places=3)
+        self.assertAlmostEqual(got[p + 'accel'][2], 1.0, places=5)  # 0.5 bridge units is 1 g
+        self.assertAlmostEqual(got[p + 'gyro'][0], 5.0 * 131 / 16.4, places=3)
+        self.assertEqual(len(got[p + 'quaternion']), 4)
+        self.assertTrue(stream.send_idle(now=11.0, force=True))
+        idle = {msg.address: msg.params for msg in OscBundle(sock.recv(65535))}
+        self.assertEqual((idle[p + 'valid'], idle[p + 'active'], idle[p + 'energy']), ([0], [0], [0.0]))
+        stream.close()
+        sock.close()
+
+    def test_public_osc_finds_every_network_broadcast_address(self):
+        from bridge import public_osc
+        listing = ('[{"ifname": "lo", "addr_info": [{"local": "127.0.0.1"}]},'
+                   ' {"ifname": "eth0", "addr_info": [{"local": "10.0.0.84", "broadcast": "10.0.0.255"}]},'
+                   ' {"ifname": "wlan0", "addr_info": [{"local": "192.168.37.20", "broadcast": "192.168.37.255"}]}]')
+        with patch.object(public_osc.subprocess, 'run', return_value=Mock(stdout=listing)):
+            self.assertEqual(public_osc.broadcast_addresses(), ['10.0.0.255', '192.168.37.255'])
+        with patch.object(public_osc.subprocess, 'run', side_effect=FileNotFoundError):
+            self.assertEqual(public_osc.broadcast_addresses(), ['255.255.255.255'])
+        self.assertEqual(public_osc.parse_target('studio.local', 9000), ('studio.local', 9000))
+        self.assertEqual(public_osc.parse_target('10.0.0.5:7000', 9000), ('10.0.0.5', 7000))
+
     def test_parser_rejects_corruption(self):
         valid = line().strip()
         for bad in ('GY=0 GZ=0 IMP=0', valid.replace('AZ=0.5', 'AZ=nan'),
@@ -168,6 +214,9 @@ class BridgeIntegrationTests(unittest.TestCase):
             sock.setblocking(False)
             receivers.append(sock)
         maestro, synth = receivers
+        public = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)  # public stream (OSC bundles)
+        public.bind(('127.0.0.1', 0))
+        public.setblocking(False)
         process = None
         masters = []
         slaves = []
@@ -193,6 +242,13 @@ class BridgeIntegrationTests(unittest.TestCase):
                             break
                         msg = OscMessage(data)
                         packets.append((sock is synth, msg.address, msg.params))
+                while True:
+                    try:
+                        data = public.recv(65535)
+                    except BlockingIOError:
+                        break
+                    for msg in OscBundle(data):
+                        packets.append(('public', msg.address, msg.params))
             def run_for(seconds, text=None):
                 deadline = time.monotonic() + seconds
                 while time.monotonic() < deadline:
@@ -209,7 +265,8 @@ class BridgeIntegrationTests(unittest.TestCase):
                         sys.executable, str(ROOT / 'scripts/run_bridge.py'),
                         str(device), '127.0.0.1', str(maestro.getsockname()[1]), '--synth',
                         '--synth-port', str(synth.getsockname()[1]), '--health-file', str(health_path),
-                        '--config', str(ROOT / 'config/bridge.json')
+                        '--config', str(ROOT / 'config/bridge.json'),
+                        '--no-public-broadcast', '--public-osc-target', f'127.0.0.1:{public.getsockname()[1]}'
                     ], stdout=log, stderr=subprocess.STDOUT)
                     run_for(.4)
                     self.assertEqual(latest('/global/brightness'), [0.0])
@@ -217,8 +274,11 @@ class BridgeIntegrationTests(unittest.TestCase):
                     run_for(.3, line())
                     run_for(.25, line(gx=2))
                     self.assertEqual(latest('/global/brightness'), [1.0])
+                    self.assertEqual(latest('/spacewizard/candle/valid'), [1])
+                    self.assertEqual(latest('/spacewizard/candle/active'), [1])
                     run_for(.8)  # receiver stays connected, candle stops transmitting
                     self.assertEqual(latest('/global/brightness'), [0.0])
+                    self.assertEqual(latest('/spacewizard/candle/valid'), [0])
                     self.assertEqual(latest('/spacewizard/auduino')[6], 0.0)
                     packets.clear()
                     run_for(.6, 'GY=2 IMP=0\n')
@@ -248,6 +308,8 @@ class BridgeIntegrationTests(unittest.TestCase):
                     process.kill(); process.wait()
                 for fd in masters + slaves:
                     os.close(fd)
+                for sock in receivers + [public]:
+                    sock.close()
                 for sock in receivers:
                     sock.close()
 

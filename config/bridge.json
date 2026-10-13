@@ -49,6 +49,15 @@
     "recover_seconds": 0.5,
     "description": "Song mode (--mode day-o) motion energy, 0 to 1. Deliberate movement (smoothed rotation >= gyro_on_dps or acceleration >= accel_on_g) starts the song at full energy. The energy then tracks how much the candle moves: at or below the *_still values it falls linearly to zero over wind_down_seconds, at or above the *_full values it recovers toward full with a recover_seconds time constant. The synth maps energy to playback speed, pitch and volume, and the song stops when the energy reaches zero. Bridge units as in interaction_mode; recorded hand-held holds stay below about 0.85 smoothed rotation."
   },
+  "public_osc": {
+    "enabled": true,
+    "port": 9000,
+    "broadcast": true,
+    "targets": [],
+    "rate_hz": 30,
+    "address_prefix": "/spacewizard/candle",
+    "description": "Open OSC stream of the candle's data for anyone on the same network: one bundle per frame, UDP broadcast to port on every IPv4 network the bridge is on, plus any host or host:port in targets (for networks that block broadcast). Messages are listed in bridge/public_osc.py and the README."
+  },
   "maestro_settings": {
     "default_host": "192.168.37.1",
     "default_port": 7672,

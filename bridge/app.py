@@ -27,6 +27,7 @@ from .osc import (
     send_synth_status_messages,
 )
 from .serial_input import parse_serial_line
+from .public_osc import PublicOscStream
 from .reliability import InputFreshness, RecoveringOSCClient, RecoveringSerial
 
 
@@ -92,6 +93,20 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("-p", "--session-plot", action="store_true", help="Save impact-session plot PNG")
     parser.add_argument("--live-plot", action="store_true", help="Show live interactive plot")
     parser.add_argument("--health-file", help="Optional supervisor heartbeat file")
+    parser.add_argument("--no-public-osc", action="store_true", help="Do not send the public OSC stream")
+    parser.add_argument("--public-osc-port", type=int, help="UDP port for the public OSC stream (default: config, 9000)")
+    parser.add_argument(
+        "--public-osc-target",
+        action="append",
+        default=[],
+        metavar="HOST[:PORT]",
+        help="Also send the public OSC stream to this host (repeatable)",
+    )
+    parser.add_argument(
+        "--no-public-broadcast",
+        action="store_true",
+        help="Send the public OSC stream only to --public-osc-target hosts",
+    )
     parser.add_argument(
         "--synth",
         action="store_true",
@@ -402,6 +417,19 @@ def main(argv: list[str] | None = None) -> int:
     serial_port = RecoveringSerial(serial_port_path)
     osc_client = None if test_mode or impact_test_mode else RecoveringOSCClient(maestro_host, maestro_port)
     synth_client = RecoveringOSCClient(synth_host, synth_port) if synth_enabled else None
+    public_cfg = config.get("public_osc", {})
+    public_stream = None
+    if not (
+        args.no_public_osc
+        or impact_test_mode
+        or not (public_cfg.get("enabled", True) if isinstance(public_cfg, dict) else True)
+    ):
+        public_stream = PublicOscStream(
+            config,
+            port=args.public_osc_port,
+            broadcast=False if args.no_public_broadcast else None,
+            extra_targets=args.public_osc_target,
+        )
     freshness = InputFreshness(float(data_processing_cfg.get("input_timeout_seconds", 0.5)))
     impact_state = ImpactState()
     session_max_deviation_g = 0.0
@@ -425,6 +453,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Maestro OSC output configured: {maestro_host}:{maestro_port} (UDP, receipt unverified)")
     if synth_client:
         print(f"Synth OSC output configured: {synth_host}:{synth_port}")
+    if public_stream:
+        print(f"Public OSC stream: {public_stream.describe()}")
     print("Bridge ready; waiting for valid sensor data (outputs off).")
 
     session_mode = impact_session_seconds > 0
@@ -458,6 +488,8 @@ def main(argv: list[str] | None = None) -> int:
                     if now_input - last_safe_output_time >= 0.2:
                         send_safe_state(config, osc_client, synth_client)
                         last_safe_output_time = now_input
+                    if public_stream:
+                        public_stream.send_idle(now_input)
 
                 line = serial_port.read(_read_latest_serial_line)
                 if serial_port.disconnected:
@@ -466,6 +498,8 @@ def main(argv: list[str] | None = None) -> int:
                     input_was_stale = True
                     send_safe_state(config, osc_client, synth_client)
                     last_safe_output_time = time.monotonic()
+                    if public_stream:
+                        public_stream.send_idle(force=True)
                 if not line:
                     continue
 
@@ -492,6 +526,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if not metrics:
                     continue
+                if public_stream:
+                    public_stream.send_frame(data, metrics, time.monotonic())
 
                 if session_mode:
                     deviation = metrics.get("deviation_from_baseline_g", 0.0)
@@ -621,6 +657,9 @@ def main(argv: list[str] | None = None) -> int:
         for _ in range(3):
             send_safe_state(config, osc_client, synth_client)
             time.sleep(0.03)
+        if public_stream:
+            public_stream.send_idle(force=True)
+            public_stream.close()
         serial_port.close()
         for client in (osc_client, synth_client):
             if client:
