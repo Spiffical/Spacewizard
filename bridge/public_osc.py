@@ -1,19 +1,19 @@
-"""Public OSC stream: the candle's data, broadcast on the local network for anyone.
+"""Public OSC stream: the motion sensor's data, broadcast on the local network for anyone.
 
 Every sensor frame becomes one OSC bundle (rate limited) sent by UDP broadcast to
 `port` on every IPv4 network this machine is on, plus any explicit host:port
 targets. Receivers just listen on the port; there is nothing to connect to.
 
-Addresses (default prefix /spacewizard/candle):
+Addresses (default prefix /spacewizard/sensor):
     /valid        i    1 while fresh sensor data arrives, 0 when it stops
-    /active       i    1 while the candle is being handled (lights and sound on)
+    /active       i    1 while the object is being handled (lights and sound on)
     /activity     f    instantaneous movement, 0..1
     /energy       f    averaged movement, 0..1 (drives the song mode)
-    /orientation  fff  candle pitch -90..90, roll -180..180, yaw 0..360 (degrees)
+    /orientation  fff  object pitch -90..90, roll -180..180, yaw 0..360 (degrees)
     /quaternion   ffff sensor orientation w x y z
     /accel        fff  sensor acceleration in g (includes gravity)
     /gyro         fff  sensor rotation rate in degrees per second
-    /pickup       i    event: the candle was just picked up
+    /pickup       i    event: the object was just picked up
     /impact       f    event: a knock or drop, jerk in g per second
 """
 
@@ -87,7 +87,7 @@ class PublicOscStream:
             cfg = {}
         self.port = int(port or cfg.get("port", 9000))
         self.broadcast = bool(cfg.get("broadcast", True) if broadcast is None else broadcast)
-        self.prefix = "/" + str(cfg.get("address_prefix", "/spacewizard/candle")).strip("/")
+        self.prefix = "/" + str(cfg.get("address_prefix", "/spacewizard/sensor")).strip("/")
         self.interval = 1.0 / max(1.0, float(cfg.get("rate_hz", 30)))
         self.idle_interval = 1.0 / max(0.2, float(cfg.get("idle_rate_hz", 2)))
         self.targets = [

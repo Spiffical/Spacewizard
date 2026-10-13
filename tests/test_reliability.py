@@ -126,7 +126,7 @@ class MotionTests(unittest.TestCase):
         for _ in range(2):  # pickup event, then the frame
             for msg in OscBundle(sock.recv(65535)):
                 got[msg.address] = msg.params
-        p = '/spacewizard/candle/'
+        p = '/spacewizard/sensor/'
         self.assertEqual((got[p + 'pickup'], got[p + 'valid'], got[p + 'active']), ([1], [1], [1]))
         self.assertAlmostEqual(got[p + 'energy'][0], 0.75, places=5)
         pitch, roll, yaw = got[p + 'orientation']
@@ -274,11 +274,11 @@ class BridgeIntegrationTests(unittest.TestCase):
                     run_for(.3, line())
                     run_for(.25, line(gx=2))
                     self.assertEqual(latest('/global/brightness'), [1.0])
-                    self.assertEqual(latest('/spacewizard/candle/valid'), [1])
-                    self.assertEqual(latest('/spacewizard/candle/active'), [1])
+                    self.assertEqual(latest('/spacewizard/sensor/valid'), [1])
+                    self.assertEqual(latest('/spacewizard/sensor/active'), [1])
                     run_for(.8)  # receiver stays connected, candle stops transmitting
                     self.assertEqual(latest('/global/brightness'), [0.0])
-                    self.assertEqual(latest('/spacewizard/candle/valid'), [0])
+                    self.assertEqual(latest('/spacewizard/sensor/valid'), [0])
                     self.assertEqual(latest('/spacewizard/auduino')[6], 0.0)
                     packets.clear()
                     run_for(.6, 'GY=2 IMP=0\n')

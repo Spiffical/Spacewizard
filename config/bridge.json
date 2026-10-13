@@ -55,8 +55,8 @@
     "broadcast": true,
     "targets": [],
     "rate_hz": 30,
-    "address_prefix": "/spacewizard/candle",
-    "description": "Open OSC stream of the candle's data for anyone on the same network: one bundle per frame, UDP broadcast to port on every IPv4 network the bridge is on, plus any host or host:port in targets (for networks that block broadcast). Messages are listed in bridge/public_osc.py and the README."
+    "address_prefix": "/spacewizard/sensor",
+    "description": "Open OSC stream of the motion sensor's data for anyone on the same network: one bundle per frame, UDP broadcast to port on every IPv4 network the bridge is on, plus any host or host:port in targets (for networks that block broadcast). Messages are listed in bridge/public_osc.py and the README."
   },
   "maestro_settings": {
     "default_host": "192.168.37.1",

@@ -65,8 +65,8 @@ Any computer on the same network as the Pi can receive the motion data by listen
 OSC on **UDP port 9000**: one bundle per frame at 30 Hz, sent by broadcast. Check it with
 `python3 tools/osc_monitor.py`, which needs only `pip install python-osc`.
 
-Addresses start with `/spacewizard/candle`; set `public_osc.address_prefix` in
-`config/bridge.json` to name your object instead.
+Addresses start with `/spacewizard/sensor`; to use another name, set
+`public_osc.address_prefix` in `config/bridge.json`.
 
 | Address | Arguments |
 |---|---|
