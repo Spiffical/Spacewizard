@@ -1,266 +1,110 @@
-# SpaceWizard Project
+# SpaceWizard
 
-A wireless motion-controlled lighting system with two different implementations for controlling lights using MPU6050 sensor data and nRF24L01 wireless communication.
+A motion-sensing candle for an interactive installation. A visitor picks the candle up,
+and its movement drives MaestroDMX stage lighting and a SuperCollider sound engine.
+The candle's motion is also broadcast as an open OSC stream that anyone on the same
+network can use.
 
-## Project Overview
+```
+candle: Arduino Nano + MPU6050 + nRF24L01
+   |  2.4 GHz radio
+receiver: Arduino Nano + nRF24L01 --USB--> Raspberry Pi (or a laptop)
+                                            |- bridge --> MaestroDMX lights (OSC, UDP 7672)
+                                            |- SuperCollider synth --> speakers
+                                            '- public OSC stream (UDP 9000)
+```
 
-SpaceWizard uses motion sensors to control lighting effects wirelessly. The system consists of:
-- **Transmitter unit** with MPU6050 motion sensor and button controls
-- **Receiver unit** that processes the wireless data
-- **Two different lighting control systems** (selectable based on your hardware)
+## Quick start
 
-## Project Versions
-
-This repository contains two complete implementations of the SpaceWizard system:
-
-### 🎨 [LED Version](./led-version/) - Direct NeoPixel Control
-- **Controls NeoPixel LED strips directly**
-- Motion-responsive patterns that react to device orientation
-- Multiple animation modes with automated and manual control
-- Perfect for DIY LED installations and Arduino-based projects
-
-**Features:**
-- Real-time LED position control based on device roll
-- Color effects based on pitch and yaw angles
-- Impact-reactive brightness for dynamic effects
-- Button-based mode switching (5 press modes + hold mode)
-
-### 🎭 [Maestro OSC Version](./maestro-osc-version/) - Professional Lighting Control
-- **Controls MaestroDMX software via OSC (Open Sound Control)**
-- Designed for professional lighting systems and installations
-- Converts motion data to OSC messages over network
-- Compatible with DMX lighting fixtures and professional show control
-
-**Features:**
-- Network-based control using OSC protocol
-- Maps motion data to MaestroDMX parameters
-- Professional lighting effects (strobe, brightness, speed, excitement)
-- Python bridge for easy integration and customization
-- **Test mode** for debugging and data visualization without MaestroDMX
-
-## Hardware Requirements
-
-### Common Components (Both Versions)
-- **Transmitter Arduino**: Nano/UNO with MPU6050 sensor and nRF24L01 radio
-- **Motion Sensor**: MPU6050 6-axis accelerometer/gyroscope
-- **Wireless Module**: nRF24L01 radio transceiver (2.4GHz)
-- **Power**: 5V for Arduino, 3.3V for radio modules
-
-### Version-Specific Components
-
-#### LED Version Additional Hardware
-- **Receiver Arduino**: Nano/UNO with nRF24L01 radio
-- **LED Strip**: NeoPixel/WS2812B LED strip (40 LEDs recommended)
-- **Power Supply**: Sufficient for LED strip current requirements
-
-#### Maestro OSC Version Additional Hardware
-- **Receiver Arduino**: Nano/UNO with nRF24L01 radio (USB connected to computer)
-- **Computer/Laptop**: Running Python 3.6+ with MaestroDMX software
-- **Network**: Connection between computer and MaestroDMX system
-
-## MPU6050 Calibration (Required for Both Versions)
-
-**Every MPU6050 sensor requires individual calibration** for accurate motion tracking. This is a one-time setup process that determines the unique offset values for your specific sensor.
-
-### Calibration Process
-
-1. **Upload calibration sketch**: Use `mpu6050_calibration.ino` (located in the root folder)
-2. **Place sensor flat and motionless** on a stable, non-magnetic surface
-3. **Run calibration**: Upload the sketch and open Serial Monitor (115200 baud)
-4. **Wait ~30 seconds** for calibration to complete - sensor must remain completely still
-5. **Copy offset values** to your transmitter code in both versions:
-   ```cpp
-    #define MPU_ACCEL_X_OFFSET  <your calibrated accel x offset>
-    #define MPU_ACCEL_Y_OFFSET  <your calibrated accel y offset>
-    #define MPU_ACCEL_Z_OFFSET  <your calibrated accel z offset>
-    #define MPU_GYRO_X_OFFSET   <your calibrated gyro x offset>
-    #define MPU_GYRO_Y_OFFSET   <your calibrated gyro y offset>
-    #define MPU_GYRO_Z_OFFSET   <your calibrated gyro z offset>
+1. **Flash the firmware.** Calibrate the MPU6050 with `firmware/calibration/`, then flash
+   `firmware/transmitter` (the candle) and `firmware/receiver` to Arduino Nanos.
+   Wiring and libraries are in [docs/hardware.md](docs/hardware.md).
+2. **Install** [SuperCollider](https://supercollider.github.io) and Python 3, then:
+   ```bash
+   python3 -m venv .venv && .venv/bin/pip install -r requirements.txt
    ```
+3. **Run** with the receiver plugged in over USB:
+   ```bash
+   scripts/spacewizard_live.sh start --mode smooth-sine --smooth-preset pi-quiet-pentatonic
+   scripts/spacewizard_live.sh start --mode day-o --maestro-host 192.168.37.1   # with lights
+   scripts/spacewizard_live.sh stop
+   ```
+   Without `--maestro-host` the rig runs sound only. Logs are in `.runtime/logs/`.
 
-**Important Notes:**
-- Each MPU6050 sensor has unique offset values
-- Run calibration with your specific sensor before first use
-- Place sensor on vibration-free, non-magnetic surface
-- Ensure stable power supply during calibration
-- Values are different for each sensor - never reuse values from another MPU6050
+## Sound modes
 
-## Quick Start
+| Mode | Behaviour |
+|---|---|
+| `smooth-sine` | A quiet pentatonic tone and an ambient bed that follow tilt, roll and heading, with a choir accent on pickup. Use the `pi-quiet-pentatonic` preset on the Pi. |
+| `day-o` | Plays `synth/samples/song/day-o.wav` from its cue point when the candle is moved. As movement stops the song slows down and drops in pitch, and moving again brings it back. The recording is not included. |
+| `ambient-flow`, `auduino`, `reese-bass`, `wow-voice` | Earlier experiments. |
 
-### One-Command Live Rig
+If the candle settles upright on its stand, a voice clip from `synth/samples/voice/` asks
+the visitor to put it back on the ground. The clip is not included.
 
-If you want the full local SpaceWizard live rig from the repo root, use:
+## OSC stream
 
-```bash
-./spacewizard_live.sh
-```
+Any computer on the same network as the Pi gets the candle's data by listening for OSC on
+**UDP port 9000**: one bundle per frame at 30 Hz, sent by broadcast. Check it with
+`python3 tools/osc_monitor.py`, which needs only `pip install python-osc`.
 
-To stop it cleanly:
+| Address | Arguments |
+|---|---|
+| `/spacewizard/candle/valid` | `i` 1 while sensor data arrives, 0 when it stops |
+| `/spacewizard/candle/active` | `i` 1 while the candle is being handled |
+| `/spacewizard/candle/activity` | `f` movement right now, 0 to 1 |
+| `/spacewizard/candle/energy` | `f` averaged movement, 0 to 1 |
+| `/spacewizard/candle/orientation` | `fff` pitch -90 to 90, roll -180 to 180, yaw 0 to 360, in degrees |
+| `/spacewizard/candle/quaternion` | `ffff` sensor orientation w, x, y, z |
+| `/spacewizard/candle/accel` | `fff` acceleration in g, including gravity |
+| `/spacewizard/candle/gyro` | `fff` rotation rate in degrees per second |
+| `/spacewizard/candle/pickup` | `i` event: the candle was just picked up |
+| `/spacewizard/candle/impact` | `f` event: a knock or drop, jerk in g per second |
 
-```bash
-./spacewizard_live.sh stop
-```
+On networks that block broadcast, list receivers as `"host:port"` in `public_osc.targets`
+in `config/bridge.json`.
 
-You can still pass the existing live-mode options through the same wrapper:
+## Raspberry Pi
 
-```bash
-./spacewizard_live.sh start --mode ambient-flow
-./spacewizard_live.sh start --mode ambient-flow --ambient-variant forest
-./spacewizard_live.sh start --mode wow-voice
-./spacewizard_live.sh start --mode smooth-sine --smooth-preset quiet-pentatonic
-./spacewizard_live.sh start --mode smooth-sine --smooth-preset pi-quiet-pentatonic
-./spacewizard_live.sh start --mode day-o
-```
-
-Use `quiet-pentatonic` for the earlier triggered-note prototype preset. Use
-`pi-quiet-pentatonic` for the Raspberry Pi installation preset with the
-single-voice quiet synth and upright stand prompt.
-
-`day-o` plays the recording in `maestro-osc-version/samples/song` from the cue
-point set in the `song` preset of `maestro-osc-version/sound_presets.scd` when
-the candle is moved deliberately. Its speed, pitch and volume follow how much the
-candle is moving: held still, the song winds down like a record slowing to a stop
-over about 3 seconds, and moving it again before then brings it back up to speed.
-The motion side is `song_gate` in `maestro-osc-version/config.json`. Audio files in
-that folder are kept out of git.
-
-### Raspberry Pi Production Boot
-
-The Pi production service starts the full rig on boot: SuperCollider synth,
-the serial receiver bridge, Maestro lighting OSC, and the Pi smooth-sine preset.
-
-On the Pi, from `/home/sbialek/Spacewizard-sound`, install and enable it with:
+The Pi runs the rig as a user service that starts at boot and restarts on failure.
 
 ```bash
-./scripts/install_spacewizard_pi_service.sh
-```
-
-Then start or inspect it with:
-
-```bash
-systemctl --user start spacewizard-production.service
+scripts/install_pi_service.sh      # on the Pi, once
+scripts/set_mode.sh day-o          # on the Pi: switch sound mode (persists across reboots)
+scripts/deploy_to_pi.sh            # from a laptop: copy this checkout, run the tests, restart
 systemctl --user status spacewizard-production.service
-journalctl --user -u spacewizard-production.service -f
 ```
 
-The service runs:
+Bridge and synth logs are in `.runtime/logs/` on the Pi.
+
+The serial port, Maestro address and default mode are set in
+`systemd/user/spacewizard-production.service`. Connect the Pi to the Maestro by
+Ethernet for performances; Maestro's manual advises against relying on its Wi-Fi hotspot.
+
+## Configuration
+
+- `config/bridge.json`: motion thresholds (`interaction_mode`), the song's motion energy
+  (`song_gate`), the OSC stream (`public_osc`) and the Maestro address.
+- `config/osc_mappings_pickup.json`: which candle values drive which Maestro controls.
+- `synth/sound_presets.scd`: sound levels and behaviour for each mode.
+
+## Layout
+
+```
+bridge/     Python bridge: serial in; Maestro, synth and public OSC out
+config/     bridge settings and Maestro mappings
+firmware/   transmitter, receiver and calibration sketches
+synth/      SuperCollider patch, sound presets and samples
+scripts/    launcher, Pi service, mode switch and deploy scripts
+tools/      sensor capture tools and the OSC monitor
+tests/      regression tests
+data/       recorded sensor traces
+docs/       hardware notes and audit history
+legacy/     the original NeoPixel-only version
+```
+
+## Tests
 
 ```bash
-./spacewizard_live.sh start --mode smooth-sine --smooth-preset pi-quiet-pentatonic --port /dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0 --maestro-host 192.168.37.1 --maestro-port 7672
+.venv/bin/python -m unittest tests/test_reliability.py
 ```
-
-To switch the Pi to another mode, which persists across reboots, run on the Pi:
-
-```bash
-./scripts/set_spacewizard_mode.sh day-o
-./scripts/set_spacewizard_mode.sh smooth-sine
-```
-
-The installer enables user linger so the service can start at boot before an
-SSH login. The production unit lives at
-`systemd/user/spacewizard-production.service`.
-
-### One-Command Demo Mode
-
-If you want the no-candle demo with just the SuperCollider ambient scene and GUI, run:
-
-```bash
-./spacewizard_demo.sh
-```
-
-To stop it cleanly:
-
-```bash
-./spacewizard_demo.sh stop
-```
-
-### For LED Version
-1. **Calibrate MPU6050** (see Calibration section above)
-2. Navigate to `led-version/` folder
-3. Upload transmitter and receiver Arduino code
-4. Connect NeoPixel LED strip to receiver
-5. Power on both units and enjoy motion-controlled lighting!
-
-### For Maestro OSC Version
-1. **Calibrate MPU6050** (see Calibration section above)
-2. Navigate to `maestro-osc-version/` folder
-3. Install Python dependencies: `pip install -r requirements.txt`
-4. Upload Arduino receiver code (transmitter code is the same)
-5. **Test the system**: `python serial_to_osc_bridge.py --test` (visualize motion data)
-6. **Debug impact detection**: `python serial_to_osc_bridge.py --impact-test` (detailed impact analysis)
-7. **Connect to MaestroDMX**: `python serial_to_osc_bridge.py` (when ready)
-8. Control MaestroDMX lights with motion!
-
-## Technical Architecture
-
-```
-Motion Data Flow:
-[MPU6050 Sensor] → [Arduino Transmitter] → [nRF24L01 Radio] → [Arduino Receiver] → [Processing] → [Light Control]
-```
-
-### LED Version Data Flow
-```
-[Motion Sensors] → [Wireless] → [LED Patterns] → [NeoPixel Strip]
-```
-
-### Maestro OSC Version Data Flow
-```
-[Motion Sensors] → [Wireless] → [Serial Output] → [Python OSC Bridge] → [Network OSC] → [MaestroDMX] → [DMX Lights]
-```
-
-## Repository Structure
-
-```
-Spacewizard/
-├── README.md                           # This main project overview
-├── mpu6050_calibration.ino             # MPU6050 calibration sketch (advanced version with libraries)
-├── mpu6050_calibration_simple.ino      # MPU6050 calibration sketch (simple version, no external libraries)
-├── led-version/                        # Direct NeoPixel LED control version
-│   ├── Spacewizard2point0_txMULTI.ino         # Transmitter Arduino code
-│   ├── Spacewizard2point0_rx.ino             # Receiver with NeoPixel control
-│   └── README.md                               # LED version documentation
-└── maestro-osc-version/                # MaestroDMX OSC control version
-    ├── Spacewizard2point0_osc_receiver.ino    # Serial-output receiver
-    ├── serial_to_osc_bridge.py                # Python OSC bridge
-    ├── config.json                            # MPU6050 to OSC mapping configuration
-    ├── requirements.txt                       # Python dependencies
-    └── README.md                             # OSC version documentation
-```
-
-## Choosing the Right Version
-
-### Use LED Version If You Want:
-- Direct Arduino control of LED strips
-- Simple DIY lighting projects
-- No computer required for operation
-- Immediate visual feedback
-
-### Use Maestro OSC Version If You Want:
-- Professional DMX lighting control
-- Integration with existing lighting systems
-- Network-based control and show programming
-- Advanced lighting effects and programming
-- Scalable multi-fixture installations
-
-## Development History
-
-- **Original LED Version**: Started as a wireless motion-controlled LED project
-- **Maestro OSC Version**: Extended to control professional lighting systems via OSC
-- **Both versions** maintain the same wireless protocol for compatibility
-
-## Support & Documentation
-
-Each version has its own comprehensive README with:
-- Detailed setup instructions
-- Hardware connection diagrams
-- Configuration options
-- Troubleshooting guides
-- Technical specifications
-
-## License
-
-This project is open source. See individual version folders for specific license information.
-
----
-
-**Ready to start?** Choose your version above and follow the setup instructions!
