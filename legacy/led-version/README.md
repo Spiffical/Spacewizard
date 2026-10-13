@@ -135,7 +135,7 @@ SpaceWizard Project:
 │   ├── Spacewizard2point0_txMULTI.ino    # Transmitter Arduino code
 │   ├── Spacewizard2point0_rx.ino         # Receiver with NeoPixel control
 │   └── README.md                        # This file
-└── maestro-osc-version/            # MaestroDMX OSC control version
+└── (current rig)                   # see the repository README
     └── [other files...]
 ```
 
@@ -143,7 +143,7 @@ SpaceWizard Project:
 
 ## Related Projects
 
-- **Maestro OSC Version**: `../maestro-osc-version/` - Controls MaestroDMX via OSC instead of direct LED control
+- **Maestro OSC Version**: `../../README.md` - Controls MaestroDMX via OSC instead of direct LED control
 
 ## Version History
 

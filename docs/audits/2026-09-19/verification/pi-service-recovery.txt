@@ -1,0 +1,9 @@
+PASS: production boot and both heartbeats after 0.0 seconds
+PASS: connected RX, candle off, service remains healthy
+PASS: automatic recovery after bridge SIGKILL after 37.0 seconds
+Injected audio-server crash; language process still alive.
+PASS: automatic recovery after audio-server SIGKILL after 45.1 seconds
+PASS: recovered rig remains healthy with candle off
+NRestarts=2
+ActiveState=active
+SubState=running

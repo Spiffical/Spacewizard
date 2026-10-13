@@ -1,0 +1,81 @@
+compiling class library...
+	Found 872 primitives.
+	Compiling directory '/Applications/SuperCollider.app/Contents/Resources/SCClassLibrary'
+	Compiling directory '/Users/spencerbialek/Library/Application Support/SuperCollider/Extensions'
+	numentries = 848115 / 12603688 = 0.067
+	5567 method selectors, 2264 classes
+	method table size 13484080 bytes, big table size 100829504
+	Number of Symbols 12508
+	Byte Code Size 384249
+	compiled 330 files in 0.18 seconds
+compile done
+localhost : setting clientID to 0.
+internal : setting clientID to 0.
+Class tree inited in 0.05 seconds
+
+
+*** Welcome to SuperCollider 3.14.1. *** For help type cmd-d.
+spacewizardAudit : setting clientID to 0.
+server 'spacewizardAudit' already booting
+Booting server 'spacewizardAudit' on address 127.0.0.1:58998.
+Number of Devices: 4
+   0 : "PA278QV"
+   1 : "BlackHole 2ch"
+   2 : "MacBook Pro Microphone"
+   3 : "MacBook Pro Speakers"
+
+"MacBook Pro Microphone" Input Device
+   Streams: 1
+      0  channels 1
+
+"BlackHole 2ch" Output Device
+   Streams: 1
+      0  channels 2
+
+SC_AudioDriver: sample rate = 48000.000000, driver's block size = 512
+SuperCollider 3 server ready.
+Requested notification messages from server 'spacewizardAudit'
+spacewizardAudit: server process's maxLogins (1) matches with my options.
+spacewizardAudit: keeping clientID (0) as confirmed by server process.
+Shared memory server interface initialized
+Using choir samples from /Users/spencerbialek/PersonalProjects/Spacewizard/maestro-osc-version/samples/choir
+Loading choir sample /Users/spencerbialek/PersonalProjects/Spacewizard/maestro-osc-version/samples/choir/00_heavenly_ah_random_intruder_cc0.wav
+Using stand prompt sample from /Users/spencerbialek/PersonalProjects/Spacewizard/maestro-osc-version/samples/voice
+Loading stand prompt sample /Users/spencerbialek/PersonalProjects/Spacewizard/maestro-osc-version/samples/voice/put-candle-back-on-ground.wav
+Loaded sound preset config: /Users/spencerbialek/PersonalProjects/Spacewizard/maestro-osc-version/sound_presets.scd
+SpaceWizard synth loaded.
+OSC listening on SuperCollider language port: 58997
+Try ~swTestPickup.(), ~swTestTiltSweep.(), ~swTestSpinStudy.(), or ~swTestAutopilot.()
+New saw test: ~swSawPentatonicScene.()
+Auduino-style test: ~swAuduinoPentatonicScene.()
+Ambient tests: ~swAmbientScene.(), ~swAmbientChordalScene.(), ~swAmbientDroneScene.(), ~swAmbientForestScene.()
+Smooth bass-note test: ~swSmoothSineScene.()
+Reese bass test: ~swReeseBassScene.()
+Wow voice test: ~swWowScene.()
+Melodic Auduino test: ~swAuduinoMelodicScene.()
+Open GUI: ~swAuduinoGUI.()
+Ambient GUI: ~swAmbientGUI.() with Flow / Chordal / Drone / Forest selector
+Smooth mix GUI: ~swSmoothMixGUI.()
+Ambient motion lab: ~swAmbientLabScene.(); ~swAmbientLabGUI.()
+Choir texture GUI: ~swChoirTextureGUI.()
+Bridge synth OSC: /spacewizard/auduino gate activity pitch roll spin yaw
+Smooth demo OSC: /spacewizard/smooth_demo gate activity pitch roll spin yaw
+Bridge status OSC: /spacewizard/live_status gate activity pitch roll spin yaw
+Smooth preset: piQuietPentatonic smoothAmpScale=1.03 smoothAmbientAmpScale=3.6
+Live synth mode: smoothSine
+PASS: live control opens real synth gate
+PASS: Pi preset creates real voices
+Live input timed out; motion gate closed and stand prompt cancelled.
+PASS: lost OSC closes real synth gate
+PASS: watchdog cleans up real voices
+PASS: audio server heartbeat written
+PASS: fresh OSC recovers after timeout
+PASS: invalid-input packet closes gate and disarms prompt
+server 'spacewizardAudit' disconnected shared memory interface
+'/quit' message sent to server 'spacewizardAudit'.
+Server 'spacewizardAudit' exited with exit code 0.
+Live input timed out; motion gate closed and stand prompt cancelled.
+PASS: audio-server exit stops heartbeat while language stays alive
+All real synth integration checks passed.
+cleaning up OSC
+

@@ -1,0 +1,217 @@
+{
+  "comment": "SpaceWizard OSC mapping constants and routes",
+  "mapping_constants": {
+    "sources": {
+      "accel_energy": {
+        "source": "accel_magnitude",
+        "scale_min": 0.5,
+        "scale_max": 1.0,
+        "invert": false,
+        "description": "Overall motion -> energy"
+      },
+      "pitch_full": {
+        "source": "orientation_pitch",
+        "scale_min": -90.0,
+        "scale_max": 90.0,
+        "invert": false,
+        "description": "Pitch angle full range"
+      },
+      "accel_x": {
+        "source": "accelerometer_x",
+        "scale_min": -2.0,
+        "scale_max": 2.0,
+        "invert": false
+      },
+      "accel_y": {
+        "source": "accelerometer_y",
+        "scale_min": -2.0,
+        "scale_max": 2.0,
+        "invert": false
+      },
+      "accel_z": {
+        "source": "accelerometer_z",
+        "scale_min": -2.0,
+        "scale_max": 2.0,
+        "invert": false
+      },
+      "gyro_x": {
+        "source": "gyroscope_x",
+        "scale_min": -500.0,
+        "scale_max": 500.0,
+        "invert": false
+      },
+      "gyro_y": {
+        "source": "gyroscope_y",
+        "scale_min": -500.0,
+        "scale_max": 500.0,
+        "invert": false
+      },
+      "gyro_z": {
+        "source": "gyroscope_z",
+        "scale_min": -500.0,
+        "scale_max": 500.0,
+        "invert": false
+      },
+      "gyro_z_abs": {
+        "source": "abs:gyroscope_z",
+        "scale_min": 0.0,
+        "scale_max": 500.0,
+        "invert": false
+      },
+      "gyro_mag": {
+        "source": "gyro_magnitude",
+        "scale_min": 0.0,
+        "scale_max": 500.0,
+        "invert": false
+      },
+      "yaw_angle": {
+        "source": "orientation_yaw",
+        "scale_min": 0.0,
+        "scale_max": 360.0,
+        "invert": false
+      },
+      "pitch_angle": {
+        "source": "orientation_pitch",
+        "scale_min": -90.0,
+        "scale_max": 90.0,
+        "invert": false
+      },
+      "roll_angle": {
+        "source": "orientation_roll",
+        "scale_min": -90.0,
+        "scale_max": 90.0,
+        "invert": false
+      },
+      "baseline_deviation": {
+        "source": "deviation_from_baseline_g",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "invert": false
+      },
+      "impact_event": {
+        "source": "impact_triggered",
+        "threshold": true,
+        "description": "Impact trigger boolean"
+      },
+      "pickup_event": {
+        "source": "pickup_triggered",
+        "threshold": true,
+        "description": "One-shot trigger when object is picked up"
+      },
+      "interaction_gate": {
+        "source": "interaction_gate",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "invert": false,
+        "description": "Main on/off gate for global brightness"
+      },
+      "interaction_activity": {
+        "source": "interaction_activity",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "invert": false,
+        "description": "Normalized activity amount while active"
+      }
+    },
+    "osc_addresses": {
+      "global_brightness": "/global/brightness",
+      "live_brightness": "/live/1/brightness",
+      "live_variance": "/live/1/variance",
+      "live_decay": "/live/1/decay",
+      "live_energy": "/live/1/energy",
+      "live_excitement": "/live/1/excitement",
+      "live_speed": "/live/1/speed",
+      "live_motion_speed": "/live/1/motion/speed",
+      "live_shape": "/live/1/shape",
+      "trigger_strobe": "/triggers/strobe"
+    }
+  },
+  "osc_routes": [
+    {
+      "enabled": true,
+      "source": "interaction_gate",
+      "osc": "global_brightness",
+      "description": "Global brightness gate on pickup/motion"
+    },
+    {
+      "enabled": true,
+      "source": "interaction_activity",
+      "osc": "live_energy",
+      "description": "Energy rises with motion activity"
+    },
+    {
+      "enabled": false,
+      "source": "accel_x",
+      "osc": "live_brightness"
+    },
+    {
+      "enabled": false,
+      "source": "accel_y",
+      "osc": "live_variance"
+    },
+    {
+      "enabled": false,
+      "source": "accel_z",
+      "osc": "live_decay"
+    },
+    {
+      "enabled": false,
+      "source": "gyro_x",
+      "osc": "live_energy"
+    },
+    {
+      "enabled": false,
+      "source": "gyro_y",
+      "osc": "live_excitement"
+    },
+    {
+      "enabled": false,
+      "source": "gyro_z",
+      "osc": "live_speed"
+    },
+    {
+      "enabled": true,
+      "source": "gyro_z_abs",
+      "osc": "live_speed",
+      "description": "Absolute yaw speed drives speed"
+    },
+    {
+      "enabled": false,
+      "source": "gyro_mag",
+      "osc": "live_motion_speed"
+    },
+    {
+      "enabled": false,
+      "source": "yaw_angle",
+      "osc": "live_shape"
+    },
+    {
+      "enabled": true,
+      "source": "pitch_angle",
+      "osc": "live_variance",
+      "description": "Pitch changes variance while moving"
+    },
+    {
+      "enabled": false,
+      "source": "roll_angle",
+      "osc": "live_decay"
+    },
+    {
+      "enabled": false,
+      "source": "baseline_deviation",
+      "osc": "live_energy"
+    },
+    {
+      "enabled": false,
+      "source": "impact_event",
+      "osc": "trigger_strobe",
+      "description": "Impact trigger -> strobe"
+    },
+    {
+      "enabled": true,
+      "source": "pickup_event",
+      "osc": "trigger_strobe",
+      "description": "One-shot strobe on pickup"
+    }
+  ]
+}

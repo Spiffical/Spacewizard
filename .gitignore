@@ -1,1 +1,14 @@
-/.venv
+/.venv/
+__pycache__/
+*.py[cod]
+.DS_Store
+/.runtime/
+/local/
+impact_session_*.png
+
+# Song-mode recordings are copyrighted; keep them out of git.
+/synth/samples/song/*
+!/synth/samples/song/README.md
+# The stand-prompt voice clip has no recorded license; keep it out of git.
+/synth/samples/voice/*
+!/synth/samples/voice/README.md

@@ -1,0 +1,97 @@
+{
+  "comment": "SpaceWizard pickup interaction profile: movement gates brightness; pitch alone changes color select",
+  "mapping_constants": {
+    "sources": {
+      "interaction_gate": {
+        "source": "interaction_gate",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "description": "Full brightness while active/moving, off after stationary rest"
+      },
+      "max_value": {
+        "source": "const:1.0",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "description": "Fixed maximum value"
+      },
+      "mid_value": {
+        "source": "const:0.5",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "description": "Fixed neutral value"
+      },
+      "low_value": {
+        "source": "const:0.25",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "description": "Fixed low value"
+      },
+      "pitch_color_select": {
+        "source": "synth_pitch_deg",
+        "scale_min": -90.0,
+        "scale_max": 90.0,
+        "description": "Pitch selects color position through Maestro Energy"
+      }
+    },
+    "osc_addresses": {
+      "global_brightness": "/global/brightness",
+      "live_brightness": "/live/1/brightness",
+      "live_energy": "/live/1/energy",
+      "live_motion_speed": "/live/1/motion/speed",
+      "live_excitement": "/live/1/excitement",
+      "live_variance": "/live/1/variance",
+      "live_decay": "/live/1/decay",
+      "live_attack": "/live/1/attack"
+    }
+  },
+  "osc_routes": [
+    {
+      "enabled": true,
+      "source": "interaction_gate",
+      "osc": "global_brightness",
+      "description": "Global brightness follows candle active/rest state"
+    },
+    {
+      "enabled": true,
+      "source": "interaction_gate",
+      "osc": "live_brightness",
+      "description": "Live fixture group brightness follows candle active/rest state"
+    },
+    {
+      "enabled": true,
+      "source": "pitch_color_select",
+      "osc": "live_energy",
+      "description": "Pitch controls color select via Energy"
+    },
+    {
+      "enabled": true,
+      "source": "mid_value",
+      "osc": "live_motion_speed",
+      "description": "Keep motion speed fixed"
+    },
+    {
+      "enabled": true,
+      "source": "mid_value",
+      "osc": "live_excitement",
+      "description": "Keep excitement fixed"
+    },
+    {
+      "enabled": true,
+      "source": "low_value",
+      "osc": "live_variance",
+      "description": "Keep variance/background fixed"
+    },
+    {
+      "enabled": true,
+      "source": "mid_value",
+      "osc": "live_decay",
+      "description": "Keep decay/trailing fixed"
+    },
+    {
+      "enabled": true,
+      "source": "mid_value",
+      "osc": "live_attack",
+      "description": "Keep attack fixed"
+    }
+  ]
+}

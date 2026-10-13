@@ -1,0 +1,19 @@
+test_real_process_loss_reconnect_invalid_frames_and_sigterm (test_reliability.BridgeIntegrationTests.test_real_process_loss_reconnect_invalid_frames_and_sigterm) ... ok
+test_auto_detection_waits_safely_for_receiver (test_reliability.MotionTests.test_auto_detection_waits_safely_for_receiver) ... ok
+test_duplicates_do_not_refresh_input (test_reliability.MotionTests.test_duplicates_do_not_refresh_input) ... ok
+test_health_files_expire_when_runtime_stops (test_reliability.MotionTests.test_health_files_expire_when_runtime_stops) ... ok
+test_osc_failure_is_isolated_and_retried (test_reliability.MotionTests.test_osc_failure_is_isolated_and_retried) ... ok
+test_parser_rejects_corruption (test_reliability.MotionTests.test_parser_rejects_corruption) ... ok
+test_rest_does_not_reactivate_without_new_movement (test_reliability.MotionTests.test_rest_does_not_reactivate_without_new_movement) ... ok
+test_serial_startup_absence_and_reconnect (test_reliability.MotionTests.test_serial_startup_absence_and_reconnect) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 5.064s
+
+OK
+Serial unavailable on None; retrying: No receiver detected
+Connected to Arduino on /new-receiver
+OSC unavailable at 127.0.0.1:9999; retrying: offline
+Serial unavailable on /mock; retrying: absent
+Connected to Arduino on /mock
+Serial connection lost; outputs off, retrying: removed

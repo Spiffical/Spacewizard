@@ -1,0 +1,30 @@
+Captured 2249 frames over 40.14s (56.0 Hz effective).
+
+Receiver / serial path:
+  Frame gap ms: mean 17.85, p95 17.80, max 3020.21
+  Line bytes: mean 143.0, estimated wire time at 115200 baud: mean 12.41 ms
+  Long gaps: >=20 ms 6, >=40 ms 5, >=80 ms 5
+
+Python bridge stage cost on this machine:
+  parse_serial_line: mean 0.017 ms, p95 0.042 ms
+  calculate_motion_metrics: mean 0.085 ms, p95 0.198 ms
+  synth OSC send: mean 0.106 ms, p95 0.285 ms
+  status OSC send: mean 0.052 ms, p95 0.155 ms
+
+Configured latency knobs currently in the system:
+  interaction start hold: 90 ms
+  interaction rest hold: 3000 ms
+  synth status OSC rate: 20.0 Hz
+  SC motion fade-in/out: 3.2 s / 5.0 s
+  smooth-sine minimum note interval: about 100 to 160 ms depending on activity
+
+Movement-stage response after raw motion onset:
+  FAST_UPRIGHT: raw onset 1795 ms from stage start, synth pitch response 35 ms, interaction_active 106 ms, pickup_trigger 106 ms
+  FAST_HORIZONTAL: raw onset 2856 ms from stage start, synth pitch response 0 ms, interaction_active 0 ms, pickup_trigger n/a
+  RAPID_REPEATS: raw onset 2216 ms from stage start, synth pitch response n/a, interaction_active 106 ms, pickup_trigger 106 ms
+
+Interpretation guide:
+  If frame gaps are already around 20 to 25 ms or worse, the receiver-side ASCII serial path is a larger bottleneck than Python.
+  If parse/metrics/OSC times stay below 1 ms while frame gaps are tens of ms, rewriting the bridge in C++ or Rust will not be the first win.
+  If interaction_active consistently trails raw motion by about 90 ms, that is the configured gate hold, not a transport failure.
+  If audible bloom feels slow even when serial and Python are fast, the 3.2 s SuperCollider motion fade-in is the dominant intentional delay.

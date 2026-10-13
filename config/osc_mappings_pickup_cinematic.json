@@ -1,0 +1,101 @@
+{
+  "comment": "SpaceWizard pickup interaction profile (cinematic variant)",
+  "mapping_constants": {
+    "sources": {
+      "interaction_gate": {
+        "source": "interaction_gate",
+        "scale_min": 0.0,
+        "scale_max": 1.0
+      },
+      "interaction_activity": {
+        "source": "interaction_activity",
+        "scale_min": 0.0,
+        "scale_max": 1.0
+      },
+      "pickup_event": {
+        "source": "pickup_triggered",
+        "threshold": true
+      },
+      "gyro_z_abs_cinematic": {
+        "source": "abs:gyroscope_z",
+        "scale_min": 0.0,
+        "scale_max": 35.0
+      },
+      "gyro_mag_cinematic": {
+        "source": "gyro_magnitude",
+        "scale_min": 2.0,
+        "scale_max": 32.0
+      },
+      "pitch_motion_range": {
+        "source": "orientation_pitch",
+        "scale_min": -55.0,
+        "scale_max": 55.0
+      },
+      "roll_attack": {
+        "source": "orientation_roll",
+        "scale_min": -50.0,
+        "scale_max": 50.0
+      }
+    },
+    "osc_addresses": {
+      "global_brightness": "/global/brightness",
+      "live_background": "/live/1/background",
+      "live_speed": "/live/1/speed",
+      "live_motion_speed": "/live/1/motion/speed",
+      "live_motion_range": "/live/1/motion/range",
+      "live_attack": "/live/1/attack",
+      "trigger_blinder": "/triggers/blinder",
+      "trigger_effect": "/triggers/effect"
+    }
+  },
+  "osc_routes": [
+    {
+      "enabled": true,
+      "source": "interaction_gate",
+      "osc": "global_brightness",
+      "description": "Hard pickup gate for brightness"
+    },
+    {
+      "enabled": true,
+      "source": "interaction_activity",
+      "osc": "live_background",
+      "description": "Movement adds atmospheric background"
+    },
+    {
+      "enabled": true,
+      "source": "gyro_z_abs_cinematic",
+      "osc": "live_speed",
+      "description": "Spin controls animation speed"
+    },
+    {
+      "enabled": true,
+      "source": "gyro_mag_cinematic",
+      "osc": "live_motion_speed",
+      "description": "Overall rotation controls motion speed"
+    },
+    {
+      "enabled": true,
+      "source": "pitch_motion_range",
+      "osc": "live_motion_range",
+      "description": "Pitch controls movement spread"
+    },
+    {
+      "enabled": true,
+      "source": "roll_attack",
+      "osc": "live_attack",
+      "description": "Roll controls attack feel"
+    },
+    {
+      "enabled": true,
+      "source": "pickup_event",
+      "osc": "trigger_blinder",
+      "description": "Punchy pickup cue"
+    },
+    {
+      "enabled": false,
+      "source": "pickup_event",
+      "osc": "trigger_effect",
+      "description": "Alternative pickup cue"
+    }
+  ]
+}

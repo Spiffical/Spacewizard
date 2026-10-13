@@ -1,0 +1,176 @@
+{
+  "comment": "SpaceWizard MPU6050 to MaestroDMX OSC Configuration",
+  "description": "Maps MPU6050 sensor data to MaestroDMX OSC addresses for lighting control",
+  "mapping_file": "osc_mappings_pickup.json",
+  "mapping_profiles": {
+    "pickup": "osc_mappings_pickup.json",
+    "pickup-cinematic": "osc_mappings_pickup_cinematic.json",
+    "legacy": "osc_mappings.json"
+  },
+  "impact_detection": {
+    "enabled": true,
+    "mode": "jerk",
+    "jerk_min_gps": 10.0,
+    "cooldown_ms": 300,
+    "threshold": 12600,
+    "description": "Jerk-only impact detection; triggers when jerk_gps crosses threshold"
+  },
+  "interaction_mode": {
+    "enabled": true,
+    "accel_on_g": 0.01,
+    "accel_off_g": 0.006,
+    "gyro_on_dps": 1.1,
+    "gyro_off_dps": 0.8,
+    "start_hold_ms": 10,
+    "rest_hold_ms": 0,
+    "stable_rest_enabled": true,
+    "stable_accel_delta_g": 0.002,
+    "stable_gyro_delta_dps": 0.15,
+    "stable_hold_ms": 2000,
+    "stable_gyro_max_dps": 0.7,
+    "movement_start_accel_delta_g": 0.012,
+    "movement_start_gyro_delta_dps": 0.45,
+    "baseline_alpha": 0.03,
+    "baseline_update_gyro_max_dps": 2.5,
+    "active_brightness": 1.0,
+    "rest_brightness": 0.0,
+    "description": "Turns lights/sound on when object is picked up/moving. Once active, fade-out is allowed only after the full accelerometer and gyro vectors stay nearly unchanged for stable_hold_ms."
+  },
+  "song_gate": {
+    "gyro_on_dps": 2.5,
+    "accel_on_g": 0.06,
+    "gyro_still_dps": 0.9,
+    "gyro_full_dps": 1.8,
+    "accel_still_g": 0.03,
+    "accel_full_g": 0.07,
+    "smoothing_seconds": 0.25,
+    "start_hold_ms": 50,
+    "wind_down_seconds": 3.0,
+    "recover_seconds": 0.5,
+    "description": "Song mode (--mode day-o) motion energy, 0 to 1. Deliberate movement (smoothed rotation >= gyro_on_dps or acceleration >= accel_on_g) starts the song at full energy. The energy then tracks how much the candle moves: at or below the *_still values it falls linearly to zero over wind_down_seconds, at or above the *_full values it recovers toward full with a recover_seconds time constant. The synth maps energy to playback speed, pitch and volume, and the song stops when the energy reaches zero. Bridge units as in interaction_mode; recorded hand-held holds stay below about 0.85 smoothed rotation."
+  },
+  "public_osc": {
+    "enabled": true,
+    "port": 9000,
+    "broadcast": true,
+    "targets": [],
+    "rate_hz": 30,
+    "address_prefix": "/spacewizard/candle",
+    "description": "Open OSC stream of the candle's data for anyone on the same network: one bundle per frame, UDP broadcast to port on every IPv4 network the bridge is on, plus any host or host:port in targets (for networks that block broadcast). Messages are listed in bridge/public_osc.py and the README."
+  },
+  "maestro_settings": {
+    "default_host": "192.168.37.1",
+    "default_port": 7672,
+    "alternative_hosts": {
+      "maestro_gateway": "192.168.37.1",
+      "legacy_static": "10.0.0.200"
+    },
+    "connection_timeout": 5.0,
+    "retry_attempts": 3
+  },
+  "synth_settings": {
+    "enabled": false,
+    "host": "127.0.0.1",
+    "port": 57120,
+    "control_rate_hz": 30,
+    "status_rate_hz": 5,
+    "description": "Optional secondary OSC output for the local SuperCollider synth patch",
+    "tilt_mapping": {
+      "mode": "calibrated_gravity",
+      "filter_alpha_rest": 0.18,
+      "filter_alpha_active": 0.65,
+      "yaw_mode": "horizontal_axis_heading",
+      "yaw_horizontal_threshold": 0.22,
+      "yaw_filter_alpha": 0.28,
+      "yaw_axial_suppress_threshold": 2.5,
+      "roll_mode": "quaternion_body",
+      "roll_full_scale_deg": 180.0,
+      "roll_gyro_deadzone_dps": 2.5,
+      "roll_leak_per_second": 0.08,
+      "rest_gravity_unit": [0.2817, -0.9386, 0.1981],
+      "pitch_axis_unit": [-0.2609, 0.1233, 0.9574],
+      "roll_axis_unit": [-0.9233, -0.3218, -0.2103],
+      "pitch_invert": false,
+      "description": "Body-fixed axes derived from the 2026-04-09 orientation sweep for the bottom-mounted candle sensor. Synth yaw now follows the candle axis heading only when the candle is horizontal enough, and synth roll uses quaternion-based twist around the candle's long axis with gyro-based fallback when quaternion data is unavailable."
+    }
+  },
+  "calibration": {
+    "accel_scale": 16384.0,
+    "gyro_scale": 131.0,
+    "accel_range": 2,
+    "gyro_range": 250,
+    "mpu6050_gyro_offsets": {
+      "x": -465,
+      "y": 90,
+      "z": 0,
+      "note": "Offsets copied from transmitter calibration results"
+    },
+    "mpu6050_accel_offsets": {
+      "x": -230,
+      "y": -696,
+      "z": 81,
+      "note": "Offsets copied from transmitter calibration results"
+    }
+  },
+  "data_processing": {
+    "input_timeout_seconds": 0.5,
+    "smoothing_factor": 0.1,
+    "deadzone_threshold": 0.05,
+    "output_rate_hz": 30,
+    "test_display_rate_hz": 8,
+    "enable_debug_output": false
+  },
+  "hardware_compatibility": {
+    "mpu6050_requirements": {
+      "i2c_pullup_resistors": true,
+      "stable_power_supply": "3.3V-5V",
+      "calibration_required": true,
+      "operating_temperature": "-40C to +85C",
+      "mounting_orientation": "flat and stable during calibration"
+    },
+    "nrf24l01_requirements": {
+      "stable_3v3_power": true,
+      "proper_antenna_connection": true,
+      "spi_communication": true,
+      "range_limitations": "up to 100m line-of-sight",
+      "interference_avoidance": "avoid 2.4GHz WiFi/Bluetooth sources"
+    },
+    "arduino_compatibility": {
+      "tested_boards": [
+        "Arduino Nano",
+        "Arduino Uno"
+      ],
+      "required_pins": {
+        "i2c_sda": "A4",
+        "i2c_scl": "A5",
+        "spi_mosi": "11",
+        "spi_miso": "12",
+        "spi_sck": "13",
+        "radio_ce": "9",
+        "radio_csn": "10",
+        "button_pin": "6"
+      },
+      "power_requirements": "stable 5V supply, separate 3.3V for radio"
+    },
+    "common_issues": {
+      "i2c_communication_failures": [
+        "Check pull-up resistors (4.7k\u03a9 recommended)",
+        "Verify I2C address (default 0x68)",
+        "Ensure stable power supply",
+        "Check wiring for shorts or breaks"
+      ],
+      "radio_range_issues": [
+        "Ensure proper antenna connection",
+        "Check power supply stability",
+        "Avoid metal obstructions",
+        "Reduce data rate if needed"
+      ],
+      "calibration_problems": [
+        "Run calibration on stable surface",
+        "Ensure sensor is not moving during calibration",
+        "Check for magnetic interference",
+        "Verify sensor temperature stability"
+      ]
+    }
+  }
+}

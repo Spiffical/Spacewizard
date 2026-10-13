@@ -1,0 +1,24 @@
+compiling class library...
+	Found 872 primitives.
+	Compiling directory '/Applications/SuperCollider.app/Contents/Resources/SCClassLibrary'
+	Compiling directory '/Users/spencerbialek/Library/Application Support/SuperCollider/Extensions'
+	numentries = 848115 / 12603688 = 0.067
+	5567 method selectors, 2264 classes
+	method table size 13484080 bytes, big table size 100829504
+	Number of Symbols 12508
+	Byte Code Size 384249
+	compiled 330 files in 0.51 seconds
+compile done
+localhost : setting clientID to 0.
+internal : setting clientID to 0.
+Class tree inited in 0.05 seconds
+
+
+*** Welcome to SuperCollider 3.14.1. *** For help type cmd-d.
+Stand prompt scheduled in 0.2s (fadeOut=0.0s + postFadeDelay=0.2s) at pitchNorm=1.0
+Stand prompt scheduled in 0.2s (fadeOut=0.0s + postFadeDelay=0.2s) at pitchNorm=1.0
+Stand prompt skipped at playback check; pitchNorm=1.0
+AUDIT cleanup_calls_during_continuous_off=0
+AUDIT canceled_prompt_play_count=1
+AUDIT reproduced both timer bugs
+cleaning up OSC
