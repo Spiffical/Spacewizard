@@ -12,14 +12,14 @@ import unittest
 from unittest.mock import Mock, patch
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'maestro-osc-version'))
+sys.path.insert(0, str(ROOT))
 from bridge import metrics
 from bridge.config import load_config
 from bridge.serial_input import parse_serial_line
 from bridge.reliability import InputFreshness, RecoveringOSCClient, RecoveringSerial
 from pythonosc.osc_message import OscMessage
 
-CONFIG = load_config(str(ROOT / 'maestro-osc-version/config.json')).config
+CONFIG = load_config(str(ROOT / 'config/bridge.json')).config
 
 
 def frame(z=0.5, gx=0):
@@ -32,7 +32,7 @@ def line(**kwargs):
 
 class MotionTests(unittest.TestCase):
     def test_health_files_expire_when_runtime_stops(self):
-        spec = importlib.util.spec_from_file_location('health', ROOT / 'scripts/check_spacewizard_health.py')
+        spec = importlib.util.spec_from_file_location('health', ROOT / 'scripts/check_health.py')
         health = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(health)
         with tempfile.TemporaryDirectory() as directory:
@@ -206,10 +206,10 @@ class BridgeIntegrationTests(unittest.TestCase):
             try:
                 with log_path.open('w') as log:
                     process = subprocess.Popen([
-                        sys.executable, str(ROOT / 'maestro-osc-version/run_osc_bridge.py'),
+                        sys.executable, str(ROOT / 'scripts/run_bridge.py'),
                         str(device), '127.0.0.1', str(maestro.getsockname()[1]), '--synth',
                         '--synth-port', str(synth.getsockname()[1]), '--health-file', str(health_path),
-                        '--config', str(ROOT / 'maestro-osc-version/config.json')
+                        '--config', str(ROOT / 'config/bridge.json')
                     ], stdout=log, stderr=subprocess.STDOUT)
                     run_for(.4)
                     self.assertEqual(latest('/global/brightness'), [0.0])

@@ -1,0 +1,182 @@
+{
+  "constant_rest_reactivates": [
+    [
+      1110,
+      true
+    ],
+    [
+      3120,
+      false
+    ],
+    [
+      3140,
+      true
+    ],
+    [
+      5150,
+      false
+    ],
+    [
+      5170,
+      true
+    ],
+    [
+      7180,
+      false
+    ],
+    [
+      7200,
+      true
+    ],
+    [
+      9210,
+      false
+    ],
+    [
+      9230,
+      true
+    ]
+  ],
+  "partial_startup_then_stationary_frames": {
+    "gate": 1.0
+  },
+  "nonfinite_input": {
+    "nan_accepted": true,
+    "infinite_impact": "OverflowError"
+  },
+  "two_motion_frames_one_minute_apart": {
+    "pickup_triggered": true
+  },
+  "silent_radio_then_keyboard_stop": {
+    "serial_opens": 1,
+    "error": null,
+    "last_brightness": [
+      1160,
+      7672,
+      "/global/brightness",
+      1.0
+    ],
+    "last_synth_control": [
+      1160,
+      57120,
+      "/spacewizard/auduino",
+      [
+        1.0,
+        1.0,
+        0.9574543562267482,
+        -0.2102722227713533,
+        1.0,
+        0.0
+      ]
+    ],
+    "messages_during_silence": 0
+  },
+  "usb_removal": {
+    "serial_opens": 1,
+    "error": "SerialException",
+    "last_brightness": [
+      1160,
+      7672,
+      "/global/brightness",
+      1.0
+    ],
+    "last_synth_control": [
+      1160,
+      57120,
+      "/spacewizard/auduino",
+      [
+        1.0,
+        1.0,
+        0.9574543562267482,
+        -0.2102722227713533,
+        1.0,
+        0.0
+      ]
+    ],
+    "messages_during_silence": 0
+  },
+  "synth_send_error_stops_combined_bridge": {
+    "serial_opens": 1,
+    "error": "OSError",
+    "last_brightness": [
+      1160,
+      7672,
+      "/global/brightness",
+      1.0
+    ],
+    "last_synth_control": [
+      1100,
+      57120,
+      "/spacewizard/auduino",
+      [
+        0.0,
+        0.0,
+        0.9574543562267482,
+        -0.2102722227713533,
+        1.0,
+        0.0
+      ]
+    ],
+    "messages_during_silence": 0
+  },
+  "ordinary_radio_stream_resumption": {
+    "serial_opens": 1,
+    "error": null,
+    "last_brightness": [
+      14980,
+      7672,
+      "/global/brightness",
+      0.0
+    ],
+    "last_synth_control": [
+      14980,
+      57120,
+      "/spacewizard/auduino",
+      [
+        0.0,
+        0.0,
+        0.9574543562267482,
+        -0.2102722227713533,
+        0.0,
+        0.0
+      ]
+    ],
+    "messages_during_silence": 0
+  },
+  "dmp_scaling": {
+    "reported_gravity_g": 0.5,
+    "reported_gyro_dps": 1.251908396946565
+  },
+  "historical_trace_with_current_config": {
+    "HORIZONTAL_REST": {
+      "frames": 634,
+      "active": 500,
+      "pickups": 1
+    },
+    "FAST_UPRIGHT": {
+      "frames": 626,
+      "active": 506,
+      "pickups": 1
+    },
+    "UPRIGHT_REST": {
+      "frames": 496,
+      "active": 496,
+      "pickups": 0
+    },
+    "FAST_HORIZONTAL": {
+      "frames": 628,
+      "active": 628,
+      "pickups": 0
+    },
+    "RAPID_REPEATS": {
+      "frames": 1139,
+      "active": 1139,
+      "pickups": 0
+    },
+    "FINAL_REST": {
+      "frames": 640,
+      "active": 640,
+      "pickups": 0
+    }
+  }
+}

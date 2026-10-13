@@ -73,10 +73,10 @@ s.waitForBoot {
 )
 '''
     for name, value in dict(OUTPUT_DEVICE=args.output_device, HEALTH_FILE=health,
-                            PRESET_FILE=ROOT/'maestro-osc-version/sound_presets.scd',
-                            CHOIR_DIR=ROOT/'maestro-osc-version/samples/choir',
-                            VOICE_DIR=ROOT/'maestro-osc-version/samples/voice',
-                            SYNTH_FILE=ROOT/'maestro-osc-version/synth/SpaceWizardSynth.scd').items():
+                            PRESET_FILE=ROOT/'synth/sound_presets.scd',
+                            CHOIR_DIR=ROOT/'synth/samples/choir',
+                            VOICE_DIR=ROOT/'synth/samples/voice',
+                            SYNTH_FILE=ROOT/'synth/SpaceWizardSynth.scd').items():
         code = code.replace(name, sc_string(value))
     script.write_text(code)
     process = subprocess.Popen([sclang, '-D', '-u', '58997', str(script)], stdout=subprocess.PIPE,

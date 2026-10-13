@@ -6,7 +6,7 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
-SOURCE = ROOT / 'maestro-osc-version/synth/SpaceWizardSynth.scd'
+SOURCE = ROOT / 'synth/SpaceWizardSynth.scd'
 sclang = os.environ.get('SCLANG_BIN') or shutil.which('sclang') or '/Applications/SuperCollider.app/Contents/MacOS/sclang'
 source = SOURCE.read_text()
 names = ['swSetMotionGate', 'swStandPromptStop', 'swStandPromptCancel',

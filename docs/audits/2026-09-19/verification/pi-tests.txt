@@ -1,0 +1,137 @@
+test_real_process_loss_reconnect_invalid_frames_and_sigterm (test_reliability.BridgeIntegrationTests.test_real_process_loss_reconnect_invalid_frames_and_sigterm) ... ok
+test_auto_detection_waits_safely_for_receiver (test_reliability.MotionTests.test_auto_detection_waits_safely_for_receiver) ... ok
+test_duplicates_do_not_refresh_input (test_reliability.MotionTests.test_duplicates_do_not_refresh_input) ... ok
+test_health_files_expire_when_runtime_stops (test_reliability.MotionTests.test_health_files_expire_when_runtime_stops) ... ok
+test_osc_failure_is_isolated_and_retried (test_reliability.MotionTests.test_osc_failure_is_isolated_and_retried) ... ok
+test_parser_rejects_corruption (test_reliability.MotionTests.test_parser_rejects_corruption) ... ok
+test_rest_does_not_reactivate_without_new_movement (test_reliability.MotionTests.test_rest_does_not_reactivate_without_new_movement) ... Serial unavailable on None; retrying: No receiver detected
+Connected to Arduino on /new-receiver
+OSC unavailable at 127.0.0.1:9999; retrying: offline
+Serial unavailable on /mock; retrying: absent
+Connected to Arduino on /mock
+Serial connection lost; outputs off, retrying: removed
+ok
+test_serial_startup_absence_and_reconnect (test_reliability.MotionTests.test_serial_startup_absence_and_reconnect) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 5.430s
+
+OK
+compiling class library...
+WebEngineContext used before QtWebEngine::initialize() or OpenGL context creation failed.
+	Found 867 primitives.
+	Compiling directory '/usr/share/SuperCollider/SCClassLibrary'
+	Compiling directory '/usr/share/SuperCollider/Extensions'
+	Compiling directory '/home/sbialek/.local/share/SuperCollider/Extensions'
+	numentries = 843580 / 12615868 = 0.067
+	5543 method selectors, 2276 classes
+	method table size 13492072 bytes, big table size 100926944
+	Number of Symbols 12601
+	Byte Code Size 386064
+	compiled 329 files in 0.64 seconds
+
+Info: 4 methods are currently overwritten by extensions. To see which, execute:
+MethodOverride.printAll
+
+compile done
+localhost : setting clientID to 0.
+internal : setting clientID to 0.
+Couldn't set realtime scheduling priority 1: Operation not permitted
+Class tree inited in 0.03 seconds
+
+
+*** Welcome to SuperCollider 3.13.0. *** For help type ctrl-c ctrl-h (Emacs) or :SChelp (vim) or ctrl-U (sced/gedit).
+Couldn't set realtime scheduling priority 1: Operation not permitted
+PASS: full synth patch compiles
+Stand prompt scheduled in 0.2s (fadeOut=0.0s + postFadeDelay=0.2s) at pitchNorm=1.0
+Stand prompt scheduled in 0.2s (fadeOut=0.0s + postFadeDelay=0.2s) at pitchNorm=1.0
+PASS: cancelled/replaced prompts do not play
+Stand prompt scheduled in 0.2s (fadeOut=0.0s + postFadeDelay=0.2s) at pitchNorm=1.0
+PASS: continuous off packets run cleanup exactly once
+PASS: valid stationary prompt still plays
+Stand prompt scheduled in 0.2s (fadeOut=0.0s + postFadeDelay=0.2s) at pitchNorm=1.0
+Live input timed out; motion gate closed and stand prompt cancelled.
+PASS: input watchdog closes the gate
+PASS: input loss disarms stand prompts
+PASS: input loss cancels pending playback
+All synth reliability checks passed.
+cleaning up OSC
+
+compiling class library...
+WebEngineContext used before QtWebEngine::initialize() or OpenGL context creation failed.
+	Found 867 primitives.
+	Compiling directory '/usr/share/SuperCollider/SCClassLibrary'
+	Compiling directory '/usr/share/SuperCollider/Extensions'
+	Compiling directory '/home/sbialek/.local/share/SuperCollider/Extensions'
+	numentries = 843580 / 12615868 = 0.067
+	5543 method selectors, 2276 classes
+	method table size 13492072 bytes, big table size 100926944
+	Number of Symbols 12601
+	Byte Code Size 386064
+	compiled 329 files in 0.65 seconds
+
+Info: 4 methods are currently overwritten by extensions. To see which, execute:
+MethodOverride.printAll
+
+compile done
+localhost : setting clientID to 0.
+internal : setting clientID to 0.
+Couldn't set realtime scheduling priority 1: Operation not permitted
+Class tree inited in 0.02 seconds
+
+
+*** Welcome to SuperCollider 3.13.0. *** For help type ctrl-c ctrl-h (Emacs) or :SChelp (vim) or ctrl-U (sced/gedit).
+Couldn't set realtime scheduling priority 1: Operation not permitted
+spacewizardAudit : setting clientID to 0.
+server 'spacewizardAudit' already booting
+Booting server 'spacewizardAudit' on address 127.0.0.1:58998.
+JackDriver: client name is 'SuperCollider'
+SC_AudioDriver: sample rate = 48000.000000, driver's block size = 1024
+JackDriver: connected  SuperCollider:out_1 to Built-in Audio Stereo:playback_FL
+JackDriver: connected  SuperCollider:out_2 to Built-in Audio Stereo:playback_FR
+SuperCollider 3 server ready.
+Requested notification messages from server 'spacewizardAudit'
+spacewizardAudit: server process's maxLogins (1) matches with my options.
+spacewizardAudit: keeping clientID (0) as confirmed by server process.
+Shared memory server interface initialized
+Using choir samples from /home/sbialek/Spacewizard-sound/maestro-osc-version/samples/choir
+Loading choir sample /home/sbialek/Spacewizard-sound/maestro-osc-version/samples/choir/00_heavenly_ah_random_intruder_cc0.wav
+Using stand prompt sample from /home/sbialek/Spacewizard-sound/maestro-osc-version/samples/voice
+Loading stand prompt sample /home/sbialek/Spacewizard-sound/maestro-osc-version/samples/voice/put-candle-back-on-ground.wav
+Loaded sound preset config: /home/sbialek/Spacewizard-sound/maestro-osc-version/sound_presets.scd
+SpaceWizard synth loaded.
+OSC listening on SuperCollider language port: 58997
+Try ~swTestPickup.(), ~swTestTiltSweep.(), ~swTestSpinStudy.(), or ~swTestAutopilot.()
+New saw test: ~swSawPentatonicScene.()
+Auduino-style test: ~swAuduinoPentatonicScene.()
+Ambient tests: ~swAmbientScene.(), ~swAmbientChordalScene.(), ~swAmbientDroneScene.(), ~swAmbientForestScene.()
+Smooth bass-note test: ~swSmoothSineScene.()
+Reese bass test: ~swReeseBassScene.()
+Wow voice test: ~swWowScene.()
+Melodic Auduino test: ~swAuduinoMelodicScene.()
+Open GUI: ~swAuduinoGUI.()
+Ambient GUI: ~swAmbientGUI.() with Flow / Chordal / Drone / Forest selector
+Smooth mix GUI: ~swSmoothMixGUI.()
+Ambient motion lab: ~swAmbientLabScene.(); ~swAmbientLabGUI.()
+Choir texture GUI: ~swChoirTextureGUI.()
+Bridge synth OSC: /spacewizard/auduino gate activity pitch roll spin yaw
+Smooth demo OSC: /spacewizard/smooth_demo gate activity pitch roll spin yaw
+Bridge status OSC: /spacewizard/live_status gate activity pitch roll spin yaw
+Smooth preset: piQuietPentatonic smoothAmpScale=1.03 smoothAmbientAmpScale=3.6
+Live synth mode: smoothSine
+PASS: live control opens real synth gate
+PASS: Pi preset creates real voices
+Live input timed out; motion gate closed and stand prompt cancelled.
+PASS: lost OSC closes real synth gate
+PASS: watchdog cleans up real voices
+PASS: audio server heartbeat written
+PASS: fresh OSC recovers after timeout
+PASS: invalid-input packet closes gate and disarms prompt
+server 'spacewizardAudit' disconnected shared memory interface
+'/quit' message sent to server 'spacewizardAudit'.
+Server 'spacewizardAudit' exited with exit code 0.
+Live input timed out; motion gate closed and stand prompt cancelled.
+PASS: audio-server exit stops heartbeat while language stays alive
+All real synth integration checks passed.
+cleaning up OSC
+
