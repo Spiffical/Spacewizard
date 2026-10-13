@@ -45,7 +45,7 @@ usage() {
 Usage: $(basename "$0") [start|restart|stop] [options]
 
 Starts SpaceWizard demo mode with SuperCollider only.
-This launches the ambient demo scene and opens the manual GUI, without the candle,
+This launches the ambient demo scene and opens the manual GUI, without the sensor,
 receiver, or Python OSC bridge.
 
 Options:

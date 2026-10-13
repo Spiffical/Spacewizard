@@ -6,7 +6,7 @@
     python3 tools/osc_monitor.py --port 9001
 
 Standalone: needs only python-osc (pip install python-osc). Run it on any computer
-on the same network as the candle's Raspberry Pi.
+on the same network as the Raspberry Pi running the bridge.
 """
 
 import argparse

@@ -63,7 +63,7 @@ bridge, auto-detecting the receiver serial port unless --port is given.
 Options:
     --port PORT            Use a specific receiver serial port
     --mode MODE            Live synth mode: auduino, ambient-flow, smooth-sine, reese-bass, wow-voice, or day-o
-                                                 (day-o plays synth/samples/song, following the candle's motion)
+                                                 (day-o plays synth/samples/song, following the object's motion)
     --smooth-preset NAME   Smooth-sine preset: standard, quiet-pentatonic, or pi-quiet-pentatonic
     --ambient-variant NAME Ambient variant anchor for ambient-flow mode: flow, chordal, drone, or forest
                                                  Yaw then blends smoothly around the ambient variant ring from that starting point.
