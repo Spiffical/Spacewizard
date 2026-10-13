@@ -81,6 +81,44 @@ s.waitForBoot {
         Out.ar(out, Pan2.ar(sig * amp.clip(0.0, 0.6) * forceCtl, pan.clip(-1.0, 1.0)));
     }).add;
 
+    SynthDef(\spacewizardStandPrompt, {
+        |out=0, buf=0, amp=1.0, pan=0.0, gate=1|
+        var play = PlayBuf.ar(1, buf, BufRateScale.kr(buf), 1, 0, 0);
+        var env = EnvGen.kr(Env.asr(0.015, 1.0, 0.08), gate, doneAction: 2);
+        var sig = LeakDC.ar(play) * env * amp.clip(0.0, 1.2);
+
+        FreeSelf.kr(Done.kr(play));
+        Out.ar(out, Pan2.ar(sig, pan.clip(-1.0, 1.0)));
+    }).add;
+
+    // Song mode players. The buffer is loaded from the song's cue point, so playback
+    // starts at frame 0. `cut` quickly silences a fading copy on a fast re-pickup.
+    SynthDef(\spacewizardSongPlayer1, {
+        |out=0, buf=0, amp=0.4, gate=1, fadeIn=0.01, fadeOut=2.5, cut=0, rate=1|
+        // rate changes speed and pitch together, like a turntable slowing down.
+        var rateCtl = Lag.kr(rate.clip(0.05, 2.0), 0.08);
+        var ampCtl = Lag.kr(amp.clip(0.0, 1.0), 0.08);
+        var play = PlayBuf.ar(1, buf, BufRateScale.kr(buf) * rateCtl, 1, 0, 0);
+        var env = EnvGen.kr(Env.asr(fadeIn.max(0.001), 1.0, fadeOut.max(0.01), -2), gate, doneAction: 2);
+        var cutEnv = Lag.kr(1.0 - cut.clip(0.0, 1.0), 0.04);
+
+        FreeSelf.kr(Done.kr(play));
+        Out.ar(out, Pan2.ar(play * env * cutEnv * ampCtl, 0.0));
+    }).add;
+
+    SynthDef(\spacewizardSongPlayer2, {
+        |out=0, buf=0, amp=0.4, gate=1, fadeIn=0.01, fadeOut=2.5, cut=0, rate=1|
+        // rate changes speed and pitch together, like a turntable slowing down.
+        var rateCtl = Lag.kr(rate.clip(0.05, 2.0), 0.08);
+        var ampCtl = Lag.kr(amp.clip(0.0, 1.0), 0.08);
+        var play = PlayBuf.ar(2, buf, BufRateScale.kr(buf) * rateCtl, 1, 0, 0);
+        var env = EnvGen.kr(Env.asr(fadeIn.max(0.001), 1.0, fadeOut.max(0.01), -2), gate, doneAction: 2);
+        var cutEnv = Lag.kr(1.0 - cut.clip(0.0, 1.0), 0.04);
+
+        FreeSelf.kr(Done.kr(play));
+        Out.ar(out, play * env * cutEnv * ampCtl);
+    }).add;
+
     SynthDef(\spacewizardSawLead, {
         |out=0, gate=1, freq=220, amp=0.12, pan=0.0, cutoff=2600, rq=0.22, detune=1.004, drive=4.8,
          glide=0.035, motionBus=0, motionRise=3.2, motionFall=5.0|
@@ -131,11 +169,15 @@ s.waitForBoot {
     SynthDef(\spacewizardSmoothSine, {
         |out=0, gate=1, freq=72, amp=0.1, pan=0.0, vibratoRate=0.18, vibratoDepth=0.006,
          motionDepth=0.06, bloom=0.18, lp=2200, hold=0.06, decay=2.6, crunch=0.0, reverb=0.14,
+         bassClarity=0.0, bassClarityHpMax=62.0, bassClarityMudFreq=180.0, bassClarityMudCutDb=4.0,
          motionBus=0, motionRise=3.2, motionFall=5.0|
         var gateEnv = LagUD.kr(gate.clip(0.0, 1.0), 0.005, 0.14);
         var noteEnv = EnvGen.kr(Env.linen(0.01, hold.clip(0.01, 0.4), decay.clip(0.2, 8.0), 1.0, -4), doneAction: 2);
         var motionLevel = LagUD.kr(In.kr(motionBus, 1).clip(0.0, 1.0), motionRise.clip(0.01, 12.0), motionFall.clip(0.01, 12.0));
         var baseFreq = freq.max(25.0);
+        var clarityCtl = Lag.kr(bassClarity.clip(0.0, 1.0), 0.08);
+        var clarityHp = clarityCtl.linlin(0.0, 1.0, 24.0, bassClarityHpMax.clip(30.0, 140.0));
+        var mudCut = 0.0 - (clarityCtl * bassClarityMudCutDb.clip(0.0, 12.0));
         var vibrato = SinOsc.kr(vibratoRate.clip(0.02, 5.0), 0.0, vibratoDepth.clip(0.0, 0.08), 1.0);
         var motion = SinOsc.kr((vibratoRate * 0.35).clip(0.02, 2.0), 0.0)
             .range(1.0 - motionDepth.clip(0.0, 0.25), 1.0);
@@ -144,25 +186,33 @@ s.waitForBoot {
         var bloomCtl = Lag.kr(bloom.clip(0.0, 0.4), 0.16);
         var lpCtl = Lag.kr(lp.clip(180, 7000), 0.12);
         var fundamental = Mix(SinOsc.ar(baseFreq * vibrato * [0.999, 1.0, 1.002], 0.0, [0.22, 0.34, 0.22]));
-        var sub = SinOsc.ar(baseFreq * 0.5 * (1.0 + LFNoise2.kr(0.08).bipolar(0.0025)), 0.0, 0.18);
-        var upper = SinOsc.ar(baseFreq * 2.0, 0.0, bloomCtl * 0.1);
+        var sub = SinOsc.ar(baseFreq * 0.5 * (1.0 + LFNoise2.kr(0.08).bipolar(0.0025)), 0.0, 0.18 * (1.0 - (clarityCtl * 0.55)));
+        var upper = SinOsc.ar(baseFreq * 2.0, 0.0, bloomCtl * (0.1 + (clarityCtl * 0.08)));
         var sig = (fundamental + sub + upper) * motion;
         var crushed = (sig * (1.0 + (crunchCtl * 9.0))).tanh * (1.0 + (crunchCtl * 0.35));
 
         sig = (sig * (1.0 - (crunchCtl * 0.65))) + (crushed * (crunchCtl * 0.9));
         sig = LPF.ar(sig, lpCtl);
+        sig = HPF.ar(sig, clarityHp);
+        sig = BPeakEQ.ar(sig, bassClarityMudFreq.clip(90.0, 420.0), 0.75, mudCut);
         sig = LeakDC.ar(sig) * noteEnv * gateEnv * amp * motionLevel;
         sig = FreeVerb.ar(sig, (reverbCtl + (bloomCtl * 0.16)).clip(0.0, 0.82), (0.34 + (bloomCtl * 0.25) + (reverbCtl * 0.7)).clip(0.1, 0.96), 0.12);
+        sig = HPF.ar(sig, clarityHp * 0.72);
+        sig = Limiter.ar(LeakDC.ar(sig), 0.92, 0.005);
         Out.ar(out, Pan2.ar(sig, pan));
     }).add;
 
     SynthDef(\spacewizardSmoothSineMono, {
         |out=0, gate=1, freq=72, amp=0.1, pan=0.0, vibratoRate=0.18, vibratoDepth=0.006,
          motionDepth=0.06, bloom=0.18, lp=2200, glide=0.0, crunch=0.0, reverb=0.14,
+         bassClarity=0.0, bassClarityHpMax=62.0, bassClarityMudFreq=180.0, bassClarityMudCutDb=4.0,
          motionBus=0, motionRise=3.2, motionFall=5.0|
         var gateEnv = EnvGen.kr(Env.asr(0.005, 1.0, 0.08, -4), gate, doneAction: 2);
         var motionLevel = LagUD.kr(In.kr(motionBus, 1).clip(0.0, 1.0), motionRise.clip(0.01, 12.0), motionFall.clip(0.01, 12.0));
         var baseFreq = Lag.kr(freq.max(25.0), glide.clip(0.0, 0.2));
+        var clarityCtl = Lag.kr(bassClarity.clip(0.0, 1.0), 0.08);
+        var clarityHp = clarityCtl.linlin(0.0, 1.0, 24.0, bassClarityHpMax.clip(30.0, 140.0));
+        var mudCut = 0.0 - (clarityCtl * bassClarityMudCutDb.clip(0.0, 12.0));
         var vibrato = SinOsc.kr(vibratoRate.clip(0.02, 5.0), 0.0, vibratoDepth.clip(0.0, 0.08), 1.0);
         var motion = SinOsc.kr((vibratoRate * 0.35).clip(0.02, 2.0), 0.0)
             .range(1.0 - motionDepth.clip(0.0, 0.25), 1.0);
@@ -171,15 +221,19 @@ s.waitForBoot {
         var bloomCtl = Lag.kr(bloom.clip(0.0, 0.4), 0.16);
         var lpCtl = Lag.kr(lp.clip(180, 7000), 0.12);
         var fundamental = Mix(SinOsc.ar(baseFreq * vibrato * [0.999, 1.0, 1.002], 0.0, [0.22, 0.34, 0.22]));
-        var sub = SinOsc.ar(baseFreq * 0.5 * (1.0 + LFNoise2.kr(0.08).bipolar(0.0025)), 0.0, 0.18);
-        var upper = SinOsc.ar(baseFreq * 2.0, 0.0, bloomCtl * 0.1);
+        var sub = SinOsc.ar(baseFreq * 0.5 * (1.0 + LFNoise2.kr(0.08).bipolar(0.0025)), 0.0, 0.18 * (1.0 - (clarityCtl * 0.55)));
+        var upper = SinOsc.ar(baseFreq * 2.0, 0.0, bloomCtl * (0.1 + (clarityCtl * 0.08)));
         var sig = (fundamental + sub + upper) * motion;
         var crushed = (sig * (1.0 + (crunchCtl * 9.0))).tanh * (1.0 + (crunchCtl * 0.35));
 
         sig = (sig * (1.0 - (crunchCtl * 0.65))) + (crushed * (crunchCtl * 0.9));
         sig = LPF.ar(sig, lpCtl);
+        sig = HPF.ar(sig, clarityHp);
+        sig = BPeakEQ.ar(sig, bassClarityMudFreq.clip(90.0, 420.0), 0.75, mudCut);
         sig = LeakDC.ar(sig) * gateEnv * amp * motionLevel;
         sig = FreeVerb.ar(sig, (reverbCtl + (bloomCtl * 0.16)).clip(0.0, 0.82), (0.34 + (bloomCtl * 0.25) + (reverbCtl * 0.7)).clip(0.1, 0.96), 0.12);
+        sig = HPF.ar(sig, clarityHp * 0.72);
+        sig = Limiter.ar(LeakDC.ar(sig), 0.92, 0.005);
         Out.ar(out, Pan2.ar(sig, pan));
     }).add;
 
@@ -238,6 +292,7 @@ s.waitForBoot {
     SynthDef(\spacewizardHeavenlyChoirSynth, {
         |out=0, gate=1, rootFreq=220, amp=0.22, pan=0.0, spread=0.78,
          shimmer=0.12, breath=0.07, brightness=0.28, choirTrig=0,
+         choirFxMix=0.32, choirDelayMix=0.14, choirAir=0.36, choirBassAmp=0.0, choirBassTone=0.42,
          fadeIn=0.5, holdTime=0.28, fadeOut=4.2,
          motionBus=0, motionRise=3.2, motionFall=5.0|
         var gateEnv = EnvGen.kr(Env.asr(0.01, 1.0, 0.18), gate, doneAction: 2);
@@ -252,6 +307,11 @@ s.waitForBoot {
         var shimmerCtl = Lag.kr(shimmer.clip(0.0, 1.0), 0.25);
         var breathCtl = Lag.kr(breath.clip(0.0, 0.2), 0.18);
         var brightCtl = Lag.kr(brightness.clip(0.0, 1.0), 0.2);
+        var fxMixCtl = Lag.kr(choirFxMix.clip(0.0, 1.0), 0.22);
+        var delayMixCtl = Lag.kr(choirDelayMix.clip(0.0, 1.0), 0.2);
+        var airCtl = Lag.kr(choirAir.clip(0.0, 1.0), 0.18);
+        var bassAmpCtl = Lag.kr(choirBassAmp.clip(0.0, 0.45), 0.12);
+        var bassToneCtl = Lag.kr(choirBassTone.clip(0.0, 1.0), 0.18);
         var singers = [0.5, 0.75, 1.0, 1.0, 1.26, 1.5].collect { |ratio, index|
             var singerFreq = (root * ratio).clip(120.0, 980.0);
             var vibrato = SinOsc.kr(
@@ -262,7 +322,7 @@ s.waitForBoot {
             );
             var detune = 1.0 + LFNoise2.kr(0.08 + (index * 0.017)).bipolar(0.0028 + (shimmerCtl * 0.0014));
             var voicedFreq = singerFreq * vibrato * detune;
-            var aspiration = HPF.ar(PinkNoise.ar((breathCtl * 0.15) + 0.002), 900.0)
+            var aspiration = HPF.ar(PinkNoise.ar((breathCtl * 0.15) + (airCtl * 0.01) + 0.002), 900.0)
                 * (0.06 + (shimmerCtl * 0.03));
             var formantShift = 1.0 + LFNoise2.kr(0.04 + (index * 0.015)).bipolar(0.05);
             var ooBody = Mix([
@@ -285,25 +345,33 @@ s.waitForBoot {
             0.7,
             [0.19, 0.27] + (spreadCtl * 0.04) + (shimmerCtl * 0.02),
             3.2 + (shimmerCtl * 1.8)
-        ) * 0.44;
+        ) * (0.22 + (delayMixCtl * 0.52));
+        var bassFreq = (root * 0.5).clip(40.0, 180.0);
+        var bass = RLPF.ar(
+            (SinOsc.ar(bassFreq, 0.0, 0.58) + VarSaw.ar(bassFreq, 0.0, 0.42, 0.16)).tanh,
+            bassToneCtl.linexp(0.0, 1.0, 110.0, 840.0),
+            0.32
+        ) * bassAmpCtl * choirEnv;
         var halo;
         var sig;
 
         dry = HPF.ar(LPF.ar(dry, brightCtl.linexp(0.0, 1.0, 1300.0, 3600.0)), 110.0);
+        dry = BHiShelf.ar(dry, 2400.0, 0.65, airCtl.linlin(0.0, 1.0, -1.5, 4.5));
         halo = FreeVerb2.ar(
             (dry[0] * 0.28) + echo[0],
             (dry[1] * 0.28) + echo[1],
-            0.38 + (shimmerCtl * 0.1),
+            0.32 + (fxMixCtl * 0.32) + (shimmerCtl * 0.08),
             0.96,
             0.72 - (brightCtl * 0.12)
         );
-        sig = LeakDC.ar(((dry * 1.08) + echo + (halo * 0.62)) * gateEnv * motionLevel);
+        sig = LeakDC.ar(((dry * 1.08) + echo + (halo * (0.34 + (fxMixCtl * 0.58))) + Pan2.ar(bass, pan * 0.25)) * gateEnv * motionLevel);
         Out.ar(out, sig);
     }).add;
 
     SynthDef(\spacewizardHeavenlyChoirSamples, {
         |out=0, gate=1, rootFreq=220, amp=0.60, synthAmp=0.46, pan=0.0, spread=0.78,
          shimmer=0.12, breath=0.07, brightness=0.28, choirTrig=0,
+         choirFxMix=0.32, choirDelayMix=0.14, choirAir=0.36, choirBassAmp=0.0, choirBassTone=0.42,
          sampleStart=0.0, textureMode=1, basePitchHz=176.47,
          fadeIn=0.5, holdTime=0.28, fadeOut=4.2,
          octaveDown3=0, octaveDown2=1, octaveDown1=1, octaveUp1=0, octaveUp2=0, octaveUp3=0,
@@ -324,28 +392,63 @@ s.waitForBoot {
         var shimmerCtl = Lag.kr(shimmer.clip(0.0, 1.0), 0.25);
         var breathCtl = Lag.kr(breath.clip(0.0, 0.2), 0.18);
         var brightCtl = Lag.kr(brightness.clip(0.0, 1.0), 0.2);
+        var fxMixCtl = Lag.kr(choirFxMix.clip(0.0, 1.0), 0.22);
+        var delayMixCtl = Lag.kr(choirDelayMix.clip(0.0, 1.0), 0.2);
+        var airCtl = Lag.kr(choirAir.clip(0.0, 1.0), 0.18);
+        var bassAmpCtl = Lag.kr(choirBassAmp.clip(0.0, 0.45), 0.12);
+        var bassToneCtl = Lag.kr(choirBassTone.clip(0.0, 1.0), 0.18);
         var accentLevel = LagUD.kr(choirEnv.clip(0.0, 1.0), 0.02, 0.42);
         var startFrame = (sampleStart.clip(0.0, 8.5) * BufSampleRate.kr(buf0)).min(BufFrames.kr(buf0) - 2);
         var sampleRate = BufRateScale.kr(buf0) * (root / basePitch.max(1.0));
         var rawSample = LeakDC.ar(PlayBuf.ar(1, buf0, sampleRate, choirTrigPulse, startFrame, 0));
-        var choirLayer = Pan2.ar(rawSample, pan, ampCtl * accentLevel);
+        var sampleTone = BHiShelf.ar(
+            HPF.ar(LPF.ar(rawSample, brightCtl.linexp(0.0, 1.0, 1800.0, 6200.0)), 70.0),
+            2400.0,
+            0.65,
+            airCtl.linlin(0.0, 1.0, -1.0, 4.5)
+        );
+        var choirDry = Pan2.ar(sampleTone, pan, ampCtl * accentLevel);
+        var choirDelay = CombC.ar(
+            choirDry * (0.2 + (delayMixCtl * 0.5)),
+            0.8,
+            [0.22, 0.31] + (spreadCtl * 0.035) + (shimmerCtl * 0.018),
+            2.8 + (shimmerCtl * 2.2)
+        ) * delayMixCtl;
+        var choirHall = FreeVerb2.ar(
+            choirDry[0] + choirDelay[0],
+            choirDry[1] + choirDelay[1],
+            0.34 + (fxMixCtl * 0.34),
+            0.92 + (fxMixCtl * 0.07),
+            0.56 - (brightCtl * 0.18)
+        );
+        var choirLayer = choirDry + choirDelay + (choirHall * fxMixCtl);
         var vowelLift = brightCtl.linlin(0.0, 1.0, 0.94, 1.12);
         var makeVowel = { |freq, gain=1.0|
             var shimmerDetune = 1.0 + LFNoise2.kr(0.11).bipolar(0.002 + (shimmerCtl * 0.003));
-            var airy = HPF.ar(WhiteNoise.ar((breathCtl * 0.018) + 0.001), (1400.0 + (brightCtl * 1200.0)).clip(1200.0, 4200.0)) * 0.18;
+            var airy = HPF.ar(WhiteNoise.ar((breathCtl * 0.018) + (airCtl * 0.004) + 0.001), (1400.0 + (brightCtl * 1200.0)).clip(1200.0, 4200.0)) * 0.18;
+            var presence = BHiShelf.ar(
+                HPF.ar(
+                    Mix(VarSaw.ar(freq * [1.0, 1.5, 2.0], 0.0, [0.54, 0.48, 0.42], [0.09, 0.05, 0.04])),
+                    freq.clip(90.0, 240.0)
+                ),
+                1800.0,
+                0.62,
+                2.5 + (brightCtl * 3.8)
+            );
             var voice = LeakDC.ar(
                 Formant.ar(
                     freq * shimmerDetune,
                     ((freq * 6.0) * vowelLift).clip((freq + 20.0), 3600.0),
                     ((freq * 2.4) * vowelLift).clip(220.0, 2200.0),
-                    0.11
+                    0.22
                 )
                 + (Formant.ar(
                     (freq * 0.5) * shimmerDetune,
                     ((freq * 4.0) * vowelLift).clip(((freq * 0.5) + 20.0), 2800.0),
                     ((freq * 1.8) * vowelLift).clip(180.0, 1800.0),
-                    0.05
+                    0.10
                 ) * 0.6)
+                + (presence * 0.68)
                 + airy
             );
 
@@ -366,7 +469,7 @@ s.waitForBoot {
             makeVowel.(root * 2.0, octaveUp1.clip(0.0, 1.0) * 0.64),
             makeVowel.(root * 4.0, octaveUp2.clip(0.0, 1.0) * 0.42),
             makeVowel.(root * 8.0, octaveUp3.clip(0.0, 1.0) * 0.26)
-        ]) * activeCount.max(1.0).sqrt.reciprocal * synthAmpCtl * accentLevel;
+        ]) * activeCount.max(1.0).sqrt.reciprocal * synthAmpCtl * accentLevel * 1.65;
         var synthDry = Splay.ar([
             synthMono,
             DelayC.ar(synthMono, 0.08, 0.019 + (shimmerCtl * 0.004)),
@@ -375,11 +478,20 @@ s.waitForBoot {
         var synthHall = FreeVerb2.ar(
             synthDry[0] + DelayC.ar(synthDry[0], 0.14, 0.041),
             synthDry[1] + DelayC.ar(synthDry[1], 0.14, 0.053),
-            0.41 + (shimmerCtl * 0.03),
+            0.38 + (fxMixCtl * 0.24) + (shimmerCtl * 0.04),
             0.98,
             0.22 + (breathCtl * 0.06)
         );
-        var blend = choirLayer + (synthDry * 0.5) + (synthHall * 0.26);
+        var bassFreq = (root * 0.5).clip(40.0, 180.0);
+        var bassLayer = Pan2.ar(
+            RLPF.ar(
+                (SinOsc.ar(bassFreq, 0.0, 0.58) + VarSaw.ar(bassFreq, 0.0, 0.42, 0.16)).tanh,
+                bassToneCtl.linexp(0.0, 1.0, 110.0, 840.0),
+                0.32
+            ) * bassAmpCtl * accentLevel,
+            pan * 0.25
+        );
+        var blend = choirLayer + (synthDry * 1.05) + (synthHall * (0.34 + (fxMixCtl * 0.36))) + bassLayer;
         var sig = Limiter.ar(
             LeakDC.ar(blend * gateEnv),
             0.97,
@@ -389,10 +501,33 @@ s.waitForBoot {
     }).add;
 
     SynthDef(\spacewizardChoirRawSamplePlayer, {
-        |out=0, buf=0, amp=0.22, pan=0.0, sampleStart=0.0|
+        |out=0, buf=0, amp=0.22, pan=0.0, sampleStart=0.0, fxMix=0.0, delayMix=0.0, air=0.0, brightness=0.28, spread=0.78|
         var startFrame = (sampleStart.clip(0.0, 8.5) * BufSampleRate.kr(buf)).min(BufFrames.kr(buf) - 2);
         var raw = PlayBuf.ar(1, buf, BufRateScale.kr(buf), 1, startFrame, 0, doneAction: 2);
-        var sig = Limiter.ar(Pan2.ar(LeakDC.ar(raw), pan, amp.clip(0.0, 0.5)), 0.97, 0.01);
+        var fxMixCtl = fxMix.clip(0.0, 1.0);
+        var delayMixCtl = delayMix.clip(0.0, 1.0);
+        var brightCtl = brightness.clip(0.0, 1.0);
+        var tone = BHiShelf.ar(
+            HPF.ar(LPF.ar(LeakDC.ar(raw), brightCtl.linexp(0.0, 1.0, 1800.0, 6200.0)), 70.0),
+            2400.0,
+            0.65,
+            air.clip(0.0, 1.0).linlin(0.0, 1.0, -1.0, 4.5)
+        );
+        var dry = Pan2.ar(tone, pan, amp.clip(0.0, 0.6));
+        var echo = CombC.ar(
+            dry * (0.2 + (delayMixCtl * 0.5)),
+            0.8,
+            [0.22, 0.31] + (spread.clip(0.1, 1.0) * 0.035),
+            2.8
+        ) * delayMixCtl;
+        var hall = FreeVerb2.ar(
+            dry[0] + echo[0],
+            dry[1] + echo[1],
+            0.34 + (fxMixCtl * 0.34),
+            0.92 + (fxMixCtl * 0.07),
+            0.56 - (brightCtl * 0.18)
+        );
+        var sig = Limiter.ar(dry + echo + (hall * fxMixCtl), 0.97, 0.01);
 
         Out.ar(out, sig);
     }).add;
@@ -400,12 +535,21 @@ s.waitForBoot {
     ~swMakeChoirPreviewSynthDef = { |name, voiceKind=\cathedral, hallMix=0.34, hallRoom=0.44, hallDamp=0.26|
         SynthDef(name, {
             |out=0, buf=0, synthAmp=0.14, pan=0.0, sampleStart=0.0, basePitchHz=176.47,
+             shimmer=0.12, breath=0.07, brightness=0.28, spread=0.78,
+             hallMixCtl=0.34, hallRoomCtl=0.44, hallDampCtl=0.26, bassAmp=0.0, bassTone=0.42,
              octaveDown3=0, octaveDown2=1, octaveDown1=1, octaveUp1=0, octaveUp2=0, octaveUp3=0|
             var synthAmpCtl = Lag.kr(synthAmp.clip(0.0, 0.8), 0.08);
             var baseFreq = Lag.kr(basePitchHz.clip(120.0, 320.0), 0.05);
             var sampleDur = (BufDur.kr(buf) - sampleStart.clip(0.0, 8.5)).max(0.25);
+            var shimmerCtl = Lag.kr(shimmer.clip(0.0, 1.0), 0.2);
+            var breathCtl = Lag.kr(breath.clip(0.0, 0.2), 0.16);
+            var brightCtl = Lag.kr(brightness.clip(0.0, 1.0), 0.18);
+            var spreadCtl = Lag.kr(spread.clip(0.1, 1.0), 0.2);
+            var bassAmpCtl = Lag.kr(bassAmp.clip(0.0, 0.45), 0.12);
+            var bassToneCtl = Lag.kr(bassTone.clip(0.0, 1.0), 0.16);
             var makeVoice = { |freq, gain=1.0|
                 var voice;
+                var presence;
 
                 voice = if (voiceKind == \cathedral) {
                     BHiShelf.ar(
@@ -435,14 +579,15 @@ s.waitForBoot {
                                         freq * [1.0, 1.0025],
                                         0.0,
                                         LFNoise2.kr(0.08).range(0.52, 0.84),
-                                        [0.05, 0.04]
+                                        [0.12, 0.10]
                                     ),
-                                    LFTri.ar(freq, 0.0, 0.05),
-                                    SinOsc.ar(freq * 2.0, 0.0, 0.02)
+                                    LFTri.ar(freq, 0.0, 0.10),
+                                    SinOsc.ar(freq * 2.0, 0.0, 0.055),
+                                    VarSaw.ar(freq * 2.01, 0.0, 0.42, 0.04)
                                 ])
-                                + (AllpassC.ar(SinOsc.ar(freq, 0.0, 0.035), 0.2, LFNoise2.kr(0.11).range(0.03, 0.12), 1.6) * 0.55)
+                                + (AllpassC.ar(SinOsc.ar(freq, 0.0, 0.075), 0.2, LFNoise2.kr(0.11).range(0.03, 0.12), 1.6) * 0.7)
                             ),
-                            (freq * 5.2).clip(900.0, 3200.0)
+                            (freq * (6.4 + (brightCtl * 4.5))).clip(1100.0, 5600.0)
                         )
                     } {
                         if (voiceKind == \ribbon) {
@@ -500,8 +645,22 @@ s.waitForBoot {
                         }
                     }
                 };
+                presence = BHiShelf.ar(
+                    HPF.ar(
+                        Mix(VarSaw.ar(freq * [1.0, 1.5, 2.0], 0.0, [0.54, 0.48, 0.42], [0.065, 0.04, 0.035])),
+                        freq.clip(90.0, 240.0)
+                    ),
+                    2100.0,
+                    0.62,
+                    1.8 + (brightCtl * 3.4)
+                );
 
-                voice * gain;
+                BHiShelf.ar(
+                    voice + (presence * 0.55) + (HPF.ar(WhiteNoise.ar((breathCtl * 0.012) + 0.0008), 1600.0 + (brightCtl * 1200.0)) * (0.05 + (shimmerCtl * 0.04))),
+                    2200.0,
+                    0.65,
+                    brightCtl.linlin(0.0, 1.0, -1.5, 4.5)
+                ) * gain * 1.9;
             };
             var activeCount = 1
                 + octaveDown3.clip(0.0, 1.0)
@@ -510,7 +669,7 @@ s.waitForBoot {
                 + octaveUp1.clip(0.0, 1.0)
                 + octaveUp2.clip(0.0, 1.0)
                 + octaveUp3.clip(0.0, 1.0);
-            var synthMono = Mix([
+            var synthMonoBase = Mix([
                 makeVoice.(baseFreq * 0.125, octaveDown3.clip(0.0, 1.0) * 0.38),
                 makeVoice.(baseFreq * 0.25, octaveDown2.clip(0.0, 1.0) * 0.52),
                 makeVoice.(baseFreq * 0.5, octaveDown1.clip(0.0, 1.0) * 0.74),
@@ -518,21 +677,31 @@ s.waitForBoot {
                 makeVoice.(baseFreq * 2.0, octaveUp1.clip(0.0, 1.0) * 0.64),
                 makeVoice.(baseFreq * 4.0, octaveUp2.clip(0.0, 1.0) * 0.42),
                 makeVoice.(baseFreq * 8.0, octaveUp3.clip(0.0, 1.0) * 0.26)
-            ]) * activeCount.max(1.0).sqrt.reciprocal * synthAmpCtl;
+            ]) * activeCount.max(1.0).sqrt.reciprocal * synthAmpCtl * 1.55;
+            var synthMono = synthMonoBase + (DelayC.ar(synthMonoBase, 0.12, LFNoise2.kr(0.08).range(0.018, 0.09)) * shimmerCtl * 0.18);
             var synthStereo = Splay.ar([
                 synthMono,
-                DelayC.ar(synthMono, 0.08, 0.019),
-                DelayC.ar(synthMono, 0.08, 0.033)
-            ], 0.24, 0.72, pan);
+                DelayC.ar(synthMono, 0.08, 0.019 + (shimmerCtl * 0.004)),
+                DelayC.ar(synthMono, 0.08, 0.033 + (spreadCtl * 0.006))
+            ], spreadCtl * 0.28, 0.72, pan);
             var synthHall = FreeVerb2.ar(
                 synthStereo[0] + DelayC.ar(synthStereo[0], 0.14, 0.041),
                 synthStereo[1] + DelayC.ar(synthStereo[1], 0.14, 0.053),
-                hallRoom,
+                hallRoomCtl.clip(0.0, 1.0),
                 0.98,
-                hallDamp
+                hallDampCtl.clip(0.0, 1.0)
+            );
+            var bassFreq = (baseFreq * 0.5).clip(40.0, 180.0);
+            var bassLayer = Pan2.ar(
+                RLPF.ar(
+                    (SinOsc.ar(bassFreq, 0.0, 0.58) + VarSaw.ar(bassFreq, 0.0, 0.42, 0.16)).tanh,
+                    bassToneCtl.linexp(0.0, 1.0, 110.0, 840.0),
+                    0.32
+                ) * bassAmpCtl,
+                pan * 0.25
             );
             var keepAlive = Line.kr(1.0, 1.0, sampleDur + 1.6, doneAction: 2);
-            var sig = Limiter.ar(((synthStereo * 0.5) + (synthHall * hallMix)) * keepAlive, 0.97, 0.01);
+            var sig = Limiter.ar(((synthStereo * 1.05) + (synthHall * (0.25 + (hallMixCtl.clip(0.0, 1.0) * 0.62))) + bassLayer) * keepAlive, 0.97, 0.01);
 
             Out.ar(out, sig);
         }).add;
@@ -1432,7 +1601,7 @@ s.waitForBoot {
 
                         [".wav", ".aiff", ".aif", ".flac"].any { |suffix| fileName.endsWith(suffix) }
                     }
-                    .sortBy(_.fileName.asString)
+                    .sort { |a, b| a.fileName.asString < b.fileName.asString }
                     .collect(_.fullPath);
 
                 if (paths.notEmpty) {
@@ -1487,6 +1656,223 @@ s.waitForBoot {
     };
     ~swLoadChoirSamples.();
 
+    ~swStandPromptBuffer = nil;
+    ~swStandPromptHasSample = false;
+    ~swFindStandPromptSamplePath = {
+        var candidateDirs = [
+            (~swStandPromptSampleDir ? "").asString
+        ].select { |path| path.notNil and: { path.asString.size > 0 } };
+        var paths = [];
+
+        candidateDirs.do { |directoryPath|
+            var directory = PathName(directoryPath);
+
+            if (paths.isEmpty and: { directory.isFolder }) {
+                paths = directory.files
+                    .select { |pathName|
+                        var fileName = pathName.fileName.asString.toLower;
+
+                        [".wav", ".aiff", ".aif", ".flac"].any { |suffix| fileName.endsWith(suffix) }
+                    }
+                    .sort { |a, b| a.fileName.asString < b.fileName.asString }
+                    .collect(_.fullPath);
+
+                if (paths.notEmpty) {
+                    ("Using stand prompt sample from " ++ directoryPath).postln;
+                };
+            };
+        };
+
+        paths.first;
+    };
+    ~swLoadStandPromptSample = {
+        var path;
+
+        if (~swStandPromptBuffer.notNil) {
+            ~swStandPromptBuffer.free;
+            ~swStandPromptBuffer = nil;
+        };
+
+        path = ~swFindStandPromptSamplePath.();
+        if (path.notNil and: { PathName(path).isFile }) {
+            ("Loading stand prompt sample " ++ path).postln;
+            ~swStandPromptBuffer = Buffer.readChannel(s, path, channels: [0]);
+            s.sync;
+            ~swStandPromptHasSample = ~swStandPromptBuffer.notNil;
+        } {
+            ~swStandPromptHasSample = false;
+            "No stand prompt sample found. Stand failsafe voice prompt disabled.".postln;
+        };
+    };
+    ~swStandPromptBufNum = {
+        if (~swStandPromptBuffer.notNil) {
+            ~swStandPromptBuffer.bufnum;
+        } {
+            0;
+        };
+    };
+    ~swLoadStandPromptSample.();
+
+    // ---- Song mode ----------------------------------------------------------
+    // Plays a recording from samples/song, starting at songStartSeconds, whenever the
+    // bridge's song gate opens, and fades it out when that gate closes.
+    // Own compiler scope: the main block is at SuperCollider's per-function literal limit.
+    {
+    ~swSongBuffer = nil;
+    ~swSongReady = false;
+    ~swSongVoice = nil;
+    ~swSongFadingVoices = List.new;
+    ~swFindSongPath = { |fileName=nil|
+        var directory = PathName((~swSongSampleDir ? "").asString);
+        var files = [];
+        var match;
+
+        if (directory.isFolder) {
+            files = directory.files
+                .select { |pathName|
+                    var name = pathName.fileName.asString.toLower;
+
+                    [".wav", ".aiff", ".aif", ".flac"].any { |suffix| name.endsWith(suffix) }
+                }
+                .sort { |a, b| a.fileName.asString < b.fileName.asString };
+        };
+        if (fileName.notNil) {
+            match = files.detect { |pathName| pathName.fileName.asString == fileName.asString };
+        };
+        if (match.isNil and: { files.notEmpty }) {
+            match = files.first;
+        };
+        if (match.notNil) { match.fullPath } { nil };
+    };
+    ~swLoadSongBuffer = { |params|
+        var path = ~swFindSongPath.(params[\songFile]);
+        var startSeconds = (params[\songStartSeconds] ? 0.0).max(0.0);
+        var soundFile;
+        var startFrame = 0;
+        var channels = 2;
+
+        ~swSongReady = false;
+        if (~swSongBuffer.notNil) {
+            ~swSongBuffer.free;
+            ~swSongBuffer = nil;
+        };
+        if (path.isNil) {
+            ("No song file found in " ++ (~swSongSampleDir ? "(unset)").asString
+                ++ "; song mode stays silent until one is added.").postln;
+        } {
+            soundFile = SoundFile.openRead(path);
+            if (soundFile.notNil) {
+                startFrame = (startSeconds * soundFile.sampleRate).round.asInteger
+                    .clip(0, (soundFile.numFrames - 1).max(0));
+                channels = soundFile.numChannels;
+                soundFile.close;
+            };
+            ("Loading song " ++ path ++ " from " ++ startSeconds.round(0.01).asString ++ " s").postln;
+            ~swSongBuffer = Buffer.readChannel(s, path, startFrame, -1,
+                (channels >= 2).if({ [0, 1] }, { [0] }),
+                { |buffer|
+                    ~swSongReady = true;
+                    ("Song ready: " ++ (buffer.numFrames / buffer.sampleRate.max(1)).round(0.1).asString
+                        ++ " s, " ++ buffer.numChannels.asString ++ " channel(s)").postln;
+                });
+        };
+    };
+    ~swSongCutFading = {
+        ~swSongFadingVoices.copy.do { |voice|
+            if (voice.isPlaying) {
+                voice.set(\cut, 1);
+                AppClock.sched(0.12, {
+                    if (voice.isPlaying) { voice.free; };
+                    nil;
+                });
+            };
+            ~swSongFadingVoices.remove(voice);
+        };
+    };
+    ~swSongStart = {
+        var params = ~swAuduinoParams ? ();
+        var buffer = ~swSongBuffer;
+        var voice;
+
+        if (~swSongVoice.notNil) {
+            ~swSongFadingVoices.add(~swSongVoice);
+            ~swSongVoice = nil;
+        };
+        ~swSongCutFading.();
+        if ((~swSongReady ? false) and: { buffer.notNil }) {
+            voice = Synth((buffer.numChannels == 1).if(\spacewizardSongPlayer1, \spacewizardSongPlayer2), [
+                \buf, buffer.bufnum,
+                \amp, ~swSongAmpFor.(~swSongEnergy ? 1.0, params),
+                \rate, ~swSongRateFor.(~swSongEnergy ? 1.0, params),
+                \fadeIn, (params[\songFadeInSeconds] ? 0.01).clip(0.001, 5.0),
+                \fadeOut, (params[\songFadeOutSeconds] ? 2.5).clip(0.01, 5.0)
+            ]);
+            ~swSongVoice = voice;
+            voice.onFree {
+                if (~swSongVoice === voice) { ~swSongVoice = nil; };
+                ~swSongFadingVoices.remove(voice);
+            };
+            "Song started from its cue point.".postln;
+        } {
+            "Song mode: no song loaded, nothing to play.".postln;
+        };
+    };
+    ~swSongRelease = {
+        if (~swSongVoice.notNil) {
+            ~swSongVoice.set(\gate, 0);
+            ~swSongFadingVoices.add(~swSongVoice);
+            ~swSongVoice = nil;
+            "Song fading out.".postln;
+        };
+    };
+    // Song energy (9th OSC value, 0..1) from the bridge: how much the candle is being
+    // moved, averaged. It sets playback speed and pitch together, and the volume near zero.
+    ~swSongEnergy = 1.0;
+    ~swSongRateFor = { |energy=1.0, params|
+        var p = params ? ();
+        var fullSpeed = (p[\songFullSpeedEnergy] ? 0.8).clip(0.05, 1.0);
+        var minRate = (p[\songMinRate] ? 0.2).clip(0.05, 1.0);
+
+        minRate + ((1.0 - minRate) * (energy / fullSpeed).clip(0.0, 1.0));
+    };
+    ~swSongAmpFor = { |energy=1.0, params|
+        var p = params ? ();
+        var fadeBelow = (p[\songFadeBelowEnergy] ? 0.25).clip(0.01, 1.0);
+
+        (p[\songAmp] ? 0.4).clip(0.0, 1.0) * (energy / fadeBelow).clip(0.0, 1.0);
+    };
+    ~swSongSetEnergy = { |energy=1.0|
+        var params = ~swAuduinoParams ? ();
+        var e = energy.clip(0.0, 1.0);
+        var rate = ~swSongRateFor.(e, params);
+        var amp = ~swSongAmpFor.(e, params);
+
+        ~swSongEnergy = e;
+        if (~swSongVoice.notNil) { ~swSongVoice.set(\rate, rate, \amp, amp); };
+        // A voice that is fading out keeps slowing down until it is gone.
+        ~swSongFadingVoices.do { |voice| voice.set(\rate, rate, \amp, amp); };
+    };
+
+    // The song follows its own, less sensitive gate from the bridge (8th OSC value):
+    // it restarts from the cue when that gate opens and fades when it closes.
+    ~swSongGateOpen = false;
+    ~swSongSetGate = { |isOpen=false|
+        var open = isOpen.asBoolean;
+        var wasOpen = ~swSongGateOpen ? false;
+
+        ~swSongGateOpen = open;
+        if (open and: { wasOpen.not }) { ~swSongStart.(); };
+        if (open.not and: { wasOpen }) { ~swSongRelease.(); };
+    };
+    ~swSongStop = {
+        if (~swSongVoice.notNil) {
+            ~swSongFadingVoices.add(~swSongVoice);
+            ~swSongVoice = nil;
+        };
+        ~swSongCutFading.();
+    };
+    }.value;
+
     ~swMotionFadeInSeconds = 0.18;
     ~swMotionFadeOutSeconds = 5.0;
     ~swMotionGateOpen = false;
@@ -1500,6 +1886,12 @@ s.waitForBoot {
     ~swSmoothLayerGateRoutine = nil;
     ~swSmoothLayerLevelBus = Bus.control(s, 1);
     ~swSmoothLayerLevelBus.set(0.0);
+    ~swStandPrompt = nil;
+    ~swStandPromptRoutine = nil;
+    ~swStandPromptToken = 0;
+    ~swStandPromptArmed = false;
+    ~swStandPromptPrompted = false;
+    ~swStandPromptLastPitchNorm = 0.0;
 
     ~swVoice = nil;
     ~swSawLead = nil;
@@ -1586,6 +1978,8 @@ s.waitForBoot {
         smoothPitchNorm: 0.0,
         smoothPitchSmoothing: 0.34,
         smoothIndexHysteresis: 0.22,
+        smoothTriggerUseRawPitch: false,
+        smoothGlide: 0.0,
         smoothVibratoRate: 0.18,
         smoothVibratoDepth: 0.006,
         smoothMotionDepth: 0.06,
@@ -1598,13 +1992,35 @@ s.waitForBoot {
         smoothRollCrunchMax: 0.58,
         smoothRollReverbMin: 0.12,
         smoothRollReverbMax: 0.72,
+        smoothBassClarityAmount: 0.0,
+        smoothBassClarityPitchStart: 0.0,
+        smoothBassClarityPitchFull: -0.9,
+        smoothBassClarityHpMax: 62.0,
+        smoothBassClarityMudFreq: 180.0,
+        smoothBassClarityMudCutDb: 4.0,
+        smoothLowPitchAmpBoost: 0.0,
+        smoothLowPitchAmpStart: 0.0,
+        smoothLowPitchAmpFull: -0.85,
         smoothLayerFadeDelaySeconds: 1.0,
         smoothLayerFadeInSeconds: 0.65,
         smoothHold: 0.06,
         smoothDecay: 2.6,
+        smoothDecayMin: 1.7,
+        smoothDecayMax: 3.2,
+        smoothDecayYawMin: -0.1,
+        smoothDecayYawMax: 1.0,
         smoothMinInterval: 0.07,
+        smoothSnapBypassInterval: true,
+        smoothFastJumpThreshold: 0.55,
+        smoothFastMinInterval: 0.10,
+        smoothFastJumpAmpScale: 0.85,
+        smoothFastJumpDecayScale: 0.85,
+        smoothTailBudgetVoices: 12,
+        smoothDensityReferenceVoices: 6,
         smoothPreset: \standard,
         smoothAmpScale: 1.0,
+        smoothAmpFollowsActivity: true,
+        smoothFixedAmp: 0.10,
         smoothChoirEnabled: true,
         smoothChoirSolo: false,
         smoothChoirAmp: 0.60,
@@ -1613,6 +2029,11 @@ s.waitForBoot {
         smoothChoirShimmer: 0.12,
         smoothChoirBreath: 0.07,
         smoothChoirBrightness: 0.28,
+        smoothChoirFxMix: 0.32,
+        smoothChoirDelayMix: 0.14,
+        smoothChoirAir: 0.36,
+        smoothChoirBassAmp: 0.0,
+        smoothChoirBassTone: 0.42,
         smoothChoirSampleStart: 0.0,
         smoothChoirTexture: 1,
         smoothChoirFadeIn: 0.5,
@@ -1624,10 +2045,18 @@ s.waitForBoot {
         smoothChoirOctaveUp1: 0,
         smoothChoirOctaveUp2: 0,
         smoothChoirOctaveUp3: 0,
+        standPromptEnabled: true,
+        standPromptPitchMin: 0.86,
+        standPromptDelaySeconds: 2.5,
+        standPromptAmp: 1.0,
+        standPromptStopActivity: 0.12,
+        standPromptRequirePriorMotion: true,
         smoothAmbientEnabled: true,
         smoothAmbientYawBlendEnabled: true,
         smoothAmbientAmpScale: 0.58,
         smoothAmbientAmpCeiling: 0.24,
+        smoothAmbientAmpFollowsActivity: true,
+        smoothAmbientFixedAmp: 0.10,
         smoothAmbientPanScale: 0.6,
         smoothAmbientWidthScale: 0.92,
         smoothAmbientVariant: \flow,
@@ -1916,25 +2345,63 @@ s.waitForBoot {
         var selected = preset ? \standard;
         var values;
 
-        if (selected == \quietPentatonic) {
+        if (selected == \piQuietPentatonic) {
             values = (
-                smoothPreset: \quietPentatonic,
-                smoothExperiment: \triggeredNotes,
-                smoothAmpScale: 0.439,
+                smoothPreset: \piQuietPentatonic,
+                smoothExperiment: \trackedMono,
+                smoothPitchSmoothing: 0.68,
+                smoothIndexHysteresis: 0.12,
+                smoothTriggerUseRawPitch: true,
+                smoothGlide: 0.035,
+                smoothHold: 0.04,
+                smoothDecay: 1.15,
+                smoothDecayMin: 0.75,
+                smoothDecayMax: 1.20,
+                smoothDecayYawMin: -0.03,
+                smoothDecayYawMax: 0.12,
+                smoothMinInterval: 0.09,
+                smoothSnapBypassInterval: false,
+                smoothFastJumpThreshold: 0.42,
+                smoothFastMinInterval: 0.16,
+                smoothFastJumpAmpScale: 1.0,
+                smoothFastJumpDecayScale: 0.68,
+                smoothTailBudgetVoices: 5,
+                smoothDensityReferenceVoices: 3,
+                smoothAmpScale: 1.03,
+                smoothAmpFollowsActivity: false,
+                smoothFixedAmp: 0.11,
                 smoothCrunch: 0.0,
                 smoothReverb: 0.14,
                 smoothRollToneMaxRoll: 0.65,
                 smoothRollCrunchMin: 0.0,
-                smoothRollCrunchMax: 0.58,
+                smoothRollCrunchMax: 0.34,
                 smoothRollReverbMin: 0.12,
                 smoothRollReverbMax: 0.72,
-                smoothLayerFadeDelaySeconds: 1.0,
-                smoothLayerFadeInSeconds: 0.65,
+                smoothBassClarityAmount: 0.42,
+                smoothBassClarityPitchStart: 0.05,
+                smoothBassClarityPitchFull: -0.86,
+                smoothBassClarityHpMax: 48.0,
+                smoothBassClarityMudFreq: 180.0,
+                smoothBassClarityMudCutDb: 2.2,
+                smoothLowPitchAmpBoost: 0.80,
+                smoothLowPitchAmpStart: 0.0,
+                smoothLowPitchAmpFull: -0.85,
+                smoothLayerFadeDelaySeconds: 0.05,
+                smoothLayerFadeInSeconds: 0.18,
                 smoothChoirEnabled: true,
-                smoothChoirAmp: 0.46,
-                smoothChoirSynthAmp: 0.74,
+                smoothChoirAmp: 0.37,
+                smoothChoirSynthAmp: 0.0,
                 smoothChoirSampleStart: 0.0,
-                smoothChoirTexture: 4,
+                smoothChoirTexture: 1,
+                smoothChoirSpread: 0.93,
+                smoothChoirShimmer: 0.95,
+                smoothChoirBreath: 0.10,
+                smoothChoirBrightness: 0.96,
+                smoothChoirFxMix: 1.0,
+                smoothChoirDelayMix: 0.99,
+                smoothChoirAir: 0.94,
+                smoothChoirBassAmp: 0.31,
+                smoothChoirBassTone: 0.57,
                 smoothChoirFadeIn: 0.5,
                 smoothChoirHold: 0.28,
                 smoothChoirFadeOut: 4.2,
@@ -1944,10 +2411,18 @@ s.waitForBoot {
                 smoothChoirOctaveUp1: 0,
                 smoothChoirOctaveUp2: 0,
                 smoothChoirOctaveUp3: 0,
+                standPromptEnabled: true,
+                standPromptPitchMin: 0.75,
+                standPromptDelaySeconds: 2.5,
+                standPromptAmp: 1.0,
+                standPromptStopActivity: 0.12,
+                standPromptRequirePriorMotion: true,
                 smoothAmbientEnabled: true,
                 smoothAmbientYawBlendEnabled: true,
-                smoothAmbientAmpScale: 3.0,
-                smoothAmbientAmpCeiling: 0.24,
+                smoothAmbientAmpScale: 3.6,
+                smoothAmbientAmpCeiling: 0.43,
+                smoothAmbientAmpFollowsActivity: false,
+                smoothAmbientFixedAmp: 0.12,
                 smoothAmbientPanScale: 0.6,
                 smoothAmbientWidthScale: 0.92,
                 smoothAmbientVariant: \flow,
@@ -1963,37 +2438,154 @@ s.waitForBoot {
                 smoothImpactDrumMaxJerk: 60.0
             );
         } {
-            values = (
-                smoothPreset: \standard,
-                smoothExperiment: \triggeredNotes,
-                smoothAmpScale: 1.0,
-                smoothCrunch: 0.0,
-                smoothReverb: 0.14,
-                smoothRollToneMaxRoll: 0.65,
-                smoothRollCrunchMin: 0.0,
-                smoothRollCrunchMax: 0.18,
-                smoothRollReverbMin: 0.14,
-                smoothRollReverbMax: 0.34,
-                smoothLayerFadeDelaySeconds: 0.0,
-                smoothLayerFadeInSeconds: 0.18,
-                smoothAmbientEnabled: true,
-                smoothAmbientYawBlendEnabled: true,
-                smoothAmbientAmpScale: 0.58,
-                smoothAmbientAmpCeiling: 0.24,
-                smoothAmbientPanScale: 0.6,
-                smoothAmbientWidthScale: 0.92,
-                smoothAmbientVariant: \flow,
-                smoothAmbientRoot: 74,
-                smoothAmbientYawOffset: 0.0,
-                smoothAmbientLabEnabled: false,
-                smoothImpactDrumEnabled: true,
-                smoothImpactDrumAmp: 0.16,
-                smoothImpactDrumFreq: 74,
-                smoothImpactDrumDecay: 1.6,
-                smoothImpactDrumTone: 0.42,
-                smoothImpactDrumVerb: 0.72,
-                smoothImpactDrumMaxJerk: 60.0
-            );
+            if (selected == \quietPentatonic) {
+                values = (
+                    smoothPreset: \quietPentatonic,
+                    smoothExperiment: \triggeredNotes,
+                    smoothPitchSmoothing: 0.78,
+                    smoothIndexHysteresis: 0.08,
+                    smoothTriggerUseRawPitch: true,
+                    smoothGlide: 0.0,
+                    smoothHold: 0.06,
+                    smoothDecay: 2.6,
+                    smoothDecayMin: 1.7,
+                    smoothDecayMax: 3.2,
+                    smoothDecayYawMin: -0.1,
+                    smoothDecayYawMax: 1.0,
+                    smoothMinInterval: 0.025,
+                    smoothSnapBypassInterval: true,
+                    smoothFastJumpThreshold: 0.55,
+                    smoothFastMinInterval: 0.10,
+                    smoothFastJumpAmpScale: 0.85,
+                    smoothFastJumpDecayScale: 0.85,
+                    smoothTailBudgetVoices: 12,
+                    smoothDensityReferenceVoices: 6,
+                    smoothAmpScale: 0.439,
+                    smoothCrunch: 0.0,
+                    smoothReverb: 0.14,
+                    smoothRollToneMaxRoll: 0.65,
+                    smoothRollCrunchMin: 0.0,
+                    smoothRollCrunchMax: 0.58,
+                    smoothRollReverbMin: 0.12,
+                    smoothRollReverbMax: 0.72,
+                    smoothBassClarityAmount: 0.68,
+                    smoothBassClarityPitchStart: 0.05,
+                    smoothBassClarityPitchFull: -0.86,
+                    smoothBassClarityHpMax: 62.0,
+                    smoothBassClarityMudFreq: 180.0,
+                    smoothBassClarityMudCutDb: 4.0,
+                    smoothLowPitchAmpBoost: 0.0,
+                    smoothLowPitchAmpStart: 0.0,
+                    smoothLowPitchAmpFull: -0.85,
+                    smoothLayerFadeDelaySeconds: 1.0,
+                    smoothLayerFadeInSeconds: 0.65,
+                    smoothChoirEnabled: true,
+                    smoothChoirAmp: 0.37,
+                    smoothChoirSynthAmp: 0.0,
+                    smoothChoirSampleStart: 0.0,
+                    smoothChoirTexture: 1,
+                    smoothChoirSpread: 0.93,
+                    smoothChoirShimmer: 0.95,
+                    smoothChoirBreath: 0.10,
+                    smoothChoirBrightness: 0.96,
+                    smoothChoirFxMix: 1.0,
+                    smoothChoirDelayMix: 0.99,
+                    smoothChoirAir: 0.94,
+                    smoothChoirBassAmp: 0.31,
+                    smoothChoirBassTone: 0.57,
+                    smoothChoirFadeIn: 0.5,
+                    smoothChoirHold: 0.28,
+                    smoothChoirFadeOut: 4.2,
+                    smoothChoirOctaveDown3: 0,
+                    smoothChoirOctaveDown2: 1,
+                    smoothChoirOctaveDown1: 1,
+                    smoothChoirOctaveUp1: 0,
+                    smoothChoirOctaveUp2: 0,
+                    smoothChoirOctaveUp3: 0,
+                    standPromptEnabled: false,
+                    standPromptPitchMin: 0.86,
+                    standPromptDelaySeconds: 2.5,
+                    standPromptAmp: 1.0,
+                    standPromptStopActivity: 0.12,
+                    standPromptRequirePriorMotion: true,
+                    smoothAmbientEnabled: true,
+                    smoothAmbientYawBlendEnabled: true,
+                    smoothAmbientAmpScale: 3.0,
+                    smoothAmbientAmpCeiling: 0.24,
+                    smoothAmbientPanScale: 0.6,
+                    smoothAmbientWidthScale: 0.92,
+                    smoothAmbientVariant: \flow,
+                    smoothAmbientRoot: 74,
+                    smoothAmbientYawOffset: 0.0,
+                    smoothAmbientLabEnabled: false,
+                    smoothImpactDrumEnabled: true,
+                    smoothImpactDrumAmp: 0.16,
+                    smoothImpactDrumFreq: 74,
+                    smoothImpactDrumDecay: 1.6,
+                    smoothImpactDrumTone: 0.42,
+                    smoothImpactDrumVerb: 0.72,
+                    smoothImpactDrumMaxJerk: 60.0
+                );
+            } {
+                values = (
+                    smoothPreset: \standard,
+                    smoothExperiment: \triggeredNotes,
+                    smoothTriggerUseRawPitch: false,
+                    smoothGlide: 0.0,
+                    smoothDecayMin: 1.7,
+                    smoothDecayMax: 3.2,
+                    smoothDecayYawMin: -0.1,
+                    smoothDecayYawMax: 1.0,
+                    smoothSnapBypassInterval: true,
+                    smoothFastJumpThreshold: 0.55,
+                    smoothFastMinInterval: 0.10,
+                    smoothFastJumpAmpScale: 0.85,
+                    smoothFastJumpDecayScale: 0.85,
+                    smoothTailBudgetVoices: 12,
+                    smoothDensityReferenceVoices: 6,
+                    smoothAmpScale: 1.0,
+                    smoothCrunch: 0.0,
+                    smoothReverb: 0.14,
+                    smoothRollToneMaxRoll: 0.65,
+                    smoothRollCrunchMin: 0.0,
+                    smoothRollCrunchMax: 0.18,
+                    smoothRollReverbMin: 0.14,
+                    smoothRollReverbMax: 0.34,
+                    smoothChoirFxMix: 0.32,
+                    smoothChoirDelayMix: 0.14,
+                    smoothChoirAir: 0.36,
+                    smoothChoirBassAmp: 0.08,
+                    smoothChoirBassTone: 0.42,
+                    smoothBassClarityAmount: 0.24,
+                    smoothBassClarityPitchStart: -0.2,
+                    smoothBassClarityPitchFull: -0.9,
+                    smoothBassClarityHpMax: 54.0,
+                    smoothBassClarityMudFreq: 180.0,
+                    smoothBassClarityMudCutDb: 2.5,
+                    smoothLowPitchAmpBoost: 0.0,
+                    smoothLowPitchAmpStart: 0.0,
+                    smoothLowPitchAmpFull: -0.85,
+                    smoothLayerFadeDelaySeconds: 0.0,
+                    smoothLayerFadeInSeconds: 0.18,
+                    smoothAmbientEnabled: true,
+                    smoothAmbientYawBlendEnabled: true,
+                    smoothAmbientAmpScale: 0.58,
+                    smoothAmbientAmpCeiling: 0.24,
+                    smoothAmbientPanScale: 0.6,
+                    smoothAmbientWidthScale: 0.92,
+                    smoothAmbientVariant: \flow,
+                    smoothAmbientRoot: 74,
+                    smoothAmbientYawOffset: 0.0,
+                    smoothAmbientLabEnabled: false,
+                    smoothImpactDrumEnabled: true,
+                    smoothImpactDrumAmp: 0.16,
+                    smoothImpactDrumFreq: 74,
+                    smoothImpactDrumDecay: 1.6,
+                    smoothImpactDrumTone: 0.42,
+                    smoothImpactDrumVerb: 0.72,
+                    smoothImpactDrumMaxJerk: 60.0
+                );
+            };
         };
 
         values.putAll(~swSoundPresetOverridesFor.(\smoothSine, selected));
@@ -2005,6 +2597,12 @@ s.waitForBoot {
         };
         if (params[\smoothLayerFadeInSeconds].notNil) {
             ~swSmoothLayerFadeInSeconds = params[\smoothLayerFadeInSeconds].clip(0.01, 12.0);
+        };
+        if (params[\smoothTailBudgetVoices].notNil) {
+            ~swSmoothTailBudgetVoices = params[\smoothTailBudgetVoices].clip(1, 24).asInteger;
+        };
+        if (params[\smoothDensityReferenceVoices].notNil) {
+            ~swSmoothDensityReferenceVoices = params[\smoothDensityReferenceVoices].clip(1, 24).asInteger;
         };
     };
 
@@ -2134,6 +2732,15 @@ s.waitForBoot {
                 \smoothDecay,
                 \smoothChoirAmp,
                 \smoothChoirSynthAmp,
+                \smoothChoirSpread,
+                \smoothChoirShimmer,
+                \smoothChoirBreath,
+                \smoothChoirBrightness,
+                \smoothChoirFxMix,
+                \smoothChoirDelayMix,
+                \smoothChoirAir,
+                \smoothChoirBassAmp,
+                \smoothChoirBassTone,
                 \smoothChoirSampleStart,
                 \smoothChoirTexture,
                 \smoothChoirFadeIn,
@@ -2429,29 +3036,185 @@ s.waitForBoot {
         ~swRefreshLiveStatusGUI.();
     };
 
+    // Keep helper definitions in their own compiler scope: the main patch is
+    // close to SuperCollider's per-function selector/literal limit.
+    {
+    ~swLiveInputValid = false;
+    ~swLastLiveControlAt = nil;
+    ~swLiveInputTimeoutSeconds = 0.75;
+    if (~swLiveWatchdogRoutine.notNil) { ~swLiveWatchdogRoutine.stop; };
     ~swSetMotionGate = { |isOpen=false|
         var open = isOpen.asBoolean;
+        var wasOpen = ~swMotionGateOpen ? false;
 
         ~swMotionGateOpen = open;
         if (~swMotionLevelBus.notNil) {
             ~swMotionLevelBus.set(open.if(1.0, 0.0));
         };
         ~swSetSmoothLayerGate.(open);
-        if (~swMotionCleanupRoutine.notNil) {
+        if ((((~swAuduinoParams ? ())[\voiceMode] ? \auduino) == \song) and: { open.not }) {
+            // Safety: the regular gate closing (set down, stale input, watchdog) always stops the song.
+            ~swSongSetGate.(false);
+        };
+        if (open and: { ~swMotionCleanupRoutine.notNil }) {
             ~swMotionCleanupRoutine.stop;
             ~swMotionCleanupRoutine = nil;
         };
-        if (open.not) {
+        if (open.not and: { wasOpen }) {
             ~swResetSmoothTracking.();
             ~swResetAmbientBassTracking.();
             ~swMotionCleanupRoutine = Routine({
                 ((~swMotionFadeOutSeconds ? 5.0) + 0.35).wait;
+                ~swMotionCleanupRoutine = nil;
                 if (~swMotionGateOpen.not) {
                     ~swSilenceLiveVoices.();
                 };
             }).play(AppClock);
         };
     };
+
+    ~swStandPromptStop = {
+        // Always invalidate callbacks, including ones whose pending marker was cleared.
+        ~swStandPromptToken = (~swStandPromptToken ? 0) + 1;
+        ~swStandPromptRoutine = nil;
+        if (~swStandPrompt.notNil) {
+            ~swStandPrompt.set(\gate, 0);
+            ~swStandPrompt = nil;
+        };
+    };
+
+    ~swStandPromptPlay = { |params|
+        var enabled = (params[\standPromptEnabled] ? true);
+        var amp = (params[\standPromptAmp] ? 1.0).clip(0.0, 1.2);
+        var voice;
+
+        if (enabled and: { ~swStandPromptHasSample ? false }) {
+            ~swStandPromptStop.();
+            "Stand prompt playing.".postln;
+            voice = Synth(\spacewizardStandPrompt, [
+                \buf, ~swStandPromptBufNum.(),
+                \amp, amp,
+                \pan, 0.0
+            ]);
+            ~swStandPrompt = voice;
+            voice.onFree {
+                if (~swStandPrompt === voice) {
+                    ~swStandPrompt = nil;
+                };
+            };
+        };
+    };
+
+    ~swStandPromptCancel = {
+        ~swStandPromptStop.();
+    };
+
+    ~swStandPromptSchedule = { |params|
+        var fadeOut = (~swMotionFadeOutSeconds ? 5.0).max(0.0);
+        var postFadeDelay = (params[\standPromptDelaySeconds] ? 2.5).max(0.0);
+        var delay = (fadeOut + postFadeDelay).clip(0.0, 30.0);
+        var pitchMin = (params[\standPromptPitchMin] ? 0.86).clip(-1.0, 1.0);
+        var token;
+
+        if (~swStandPromptRoutine.isNil) {
+            ~swStandPromptToken = (~swStandPromptToken ? 0) + 1;
+            token = ~swStandPromptToken;
+            ("Stand prompt scheduled in " ++ delay.round(0.01).asString
+                ++ "s (fadeOut=" ++ fadeOut.round(0.01).asString
+                ++ "s + postFadeDelay=" ++ postFadeDelay.round(0.01).asString
+                ++ "s) at pitchNorm=" ++ (~swStandPromptLastPitchNorm ? 0.0).round(0.001).asString).postln;
+            ~swStandPromptRoutine = token;
+            AppClock.sched(delay, {
+                if ((token == (~swStandPromptToken ? -1))
+                    and: { ~swStandPromptRoutine == token }) {
+                    // An obsolete callback must never clear a newer callback's marker.
+                    ~swStandPromptRoutine = nil;
+                    if ((~swLiveInputValid ? false)
+                        and: { ~swLastLiveControlAt.notNil }
+                        and: { (Main.elapsedTime - ~swLastLiveControlAt) < ~swLiveInputTimeoutSeconds }
+                        and: { (~swMotionGateOpen ? false).not }
+                        and: { ((~swLiveInputState ? ())[\activity] ? 0.0) <= (params[\standPromptStopActivity] ? 0.01) }
+                        and: { (~swStandPromptLastPitchNorm ? 0.0) >= pitchMin }) {
+                        ~swStandPromptPlay.(params);
+                        ~swStandPromptPrompted = true;
+                        ~swStandPromptArmed = false;
+                    };
+                };
+                nil;
+            });
+        };
+    };
+
+    ~swStandPromptUpdate = { |params, gate=0.0, activity=0.0, pitchNorm=0.0|
+        var enabled = params[\standPromptEnabled] ? true;
+        var gateOpen = gate > 0.0;
+        var motionStopActivity = (params[\standPromptStopActivity] ? 0.01).clip(0.0, 1.0);
+        var pitchMin = (params[\standPromptPitchMin] ? 0.86).clip(-1.0, 1.0);
+        var requirePriorMotion = params[\standPromptRequirePriorMotion] ? true;
+        var hasPriorMotion = ~swStandPromptArmed ? false;
+        var pitchOk = pitchNorm >= pitchMin;
+
+        ~swStandPromptLastPitchNorm = pitchNorm;
+
+        if (enabled.not) {
+            ~swStandPromptCancel.();
+            ~swStandPromptArmed = false;
+            ~swStandPromptPrompted = false;
+        } {
+            if (gateOpen or: { activity > motionStopActivity }) {
+                ~swStandPromptCancel.();
+                ~swStandPromptArmed = true;
+                ~swStandPromptPrompted = false;
+            } {
+                if (pitchOk.not) {
+                    ~swStandPromptCancel.();
+                    ~swStandPromptArmed = true;
+                    ~swStandPromptPrompted = false;
+                } {
+                    if ((((hasPriorMotion or: { requirePriorMotion.not })
+                        and: { pitchOk })
+                        and: { (~swStandPromptPrompted ? false).not })
+                        and: { ~swStandPrompt.isNil }) {
+                        ~swStandPromptSchedule.(params.copy);
+                    };
+                };
+            };
+        };
+    };
+
+
+    ~swExpireLiveInput = {
+        ~swLiveInputValid = false;
+        ~swSetMotionGate.(false);
+        ~swStandPromptCancel.();
+        ~swStandPromptArmed = false;
+        ~swStandPromptPrompted = false;
+        ~swUpdateLiveInputState.(0.0, 0.0, 0.0, 0.0, 0.0, 0.0);
+    };
+    ~swCheckLiveInput = { |now|
+        now = now ? Main.elapsedTime;
+        if (~swLastLiveControlAt.notNil
+            and: { (now - ~swLastLiveControlAt) >= ~swLiveInputTimeoutSeconds }) {
+            ~swExpireLiveInput.();
+            ~swLastLiveControlAt = nil;
+            "Live input timed out; motion gate closed and stand prompt cancelled.".postln;
+        };
+    };
+    ~swStartLiveWatchdog = {
+    ~swLiveWatchdogRoutine = Routine({
+        var lastHealthWrite = -1.0;
+        loop {
+            ~swCheckLiveInput.();
+            if (~swHealthFile.notNil and: { s.serverRunning }
+                and: { (Main.elapsedTime - lastHealthWrite) >= 1.0 }) {
+                File.use(~swHealthFile, "w", { |file| file.write("ready\n"); });
+                lastHealthWrite = Main.elapsedTime;
+            };
+            0.1.wait;
+        };
+    }).play(AppClock);
+    };
+    }.value;
 
     ~swSmoothLayerBusIndex = {
         var bus = ~swSmoothLayerLevelBus ? ~swMotionLevelBus;
@@ -2736,6 +3499,7 @@ s.waitForBoot {
             ~swMotionCleanupRoutine.stop;
             ~swMotionCleanupRoutine = nil;
         };
+        ~swSongStop.();
         ~swRelease.();
         if (~swSawLead.notNil) {
             ~swSawLead.set(\gate, 0);
@@ -2951,8 +3715,31 @@ s.waitForBoot {
         ~swSmoothMidiForIndex.(~swSmoothIndexForPitch.(pitchNorm, rootMidi), rootMidi);
     };
 
+    ~swSmoothBassClarityForPitch = { |params, pitchNorm=0.0|
+        var amount = ((params ? ())[\smoothBassClarityAmount] ? 0.0).clip(0.0, 1.0);
+        var start = ((params ? ())[\smoothBassClarityPitchStart] ? 0.0).clip(-1.0, 1.0);
+        var full = ((params ? ())[\smoothBassClarityPitchFull] ? -0.9).clip(-1.0, 1.0);
+        var span = (start - full).abs.max(0.001);
+        var shaped = ((start - pitchNorm.clip(-1.0, 1.0)) / span).clip(0.0, 1.0);
+
+        amount * shaped;
+    };
+
+    ~swSmoothLiveDecayFor = { |params, activity=0.0, yawNorm=0.0|
+        var decayMin = ((params ? ())[\smoothDecayMin] ? 1.7).clip(0.1, 8.0);
+        var decayMax = ((params ? ())[\smoothDecayMax] ? 3.2).clip(0.1, 8.0);
+        var yawMin = ((params ? ())[\smoothDecayYawMin] ? -0.1).clip(-2.0, 2.0);
+        var yawMax = ((params ? ())[\smoothDecayYawMax] ? 1.0).clip(-2.0, 2.0);
+        var lo = decayMin.min(decayMax);
+        var hi = decayMin.max(decayMax);
+
+        activity.clip(0.0, 1.0).linlin(0.0, 1.0, lo, hi)
+            + yawNorm.clip(0.0, 1.0).linlin(0.0, 1.0, yawMin, yawMax);
+    };
+
     ~swSmoothSpawnNote = { |freq=72, amp=0.1, pan=0.0, vibratoRate=0.18, vibratoDepth=0.006,
-        motionDepth=0.06, bloom=0.18, lp=2200, hold=0.06, decay=2.6, crunch=0.0, reverb=0.14|
+        motionDepth=0.06, bloom=0.18, lp=2200, hold=0.06, decay=2.6, crunch=0.0, reverb=0.14,
+        bassClarity=0.0, bassClarityHpMax=62.0, bassClarityMudFreq=180.0, bassClarityMudCutDb=4.0|
         var voices = ~swSmoothVoices ? List.new;
         var tailBudget = (~swSmoothTailBudgetVoices ? 12).max(1).asInteger;
         var activeCount = voices.size.asFloat;
@@ -2989,6 +3776,10 @@ s.waitForBoot {
             \decay, scaledDecay,
             \crunch, crunch,
             \reverb, reverb,
+            \bassClarity, bassClarity,
+            \bassClarityHpMax, bassClarityHpMax,
+            \bassClarityMudFreq, bassClarityMudFreq,
+            \bassClarityMudCutDb, bassClarityMudCutDb,
             \motionBus, ~swSmoothLayerBusIndex.(),
             \motionRise, ~swSmoothLayerRiseSeconds.(),
             \motionFall, ~swMotionFadeOutSeconds
@@ -3010,13 +3801,35 @@ s.waitForBoot {
         voice;
     };
 
+    ~swSmoothLowPitchAmpScaleFor = { |params|
+        var pitchNorm = ((params ? ())[\smoothPitchNorm] ? 0.0).clip(-1.0, 1.0);
+        var boost = ((params ? ())[\smoothLowPitchAmpBoost] ? 0.0).clip(0.0, 2.0);
+        var start = ((params ? ())[\smoothLowPitchAmpStart] ? 0.0).clip(-1.0, 1.0);
+        var full = ((params ? ())[\smoothLowPitchAmpFull] ? -0.85).clip(-1.0, 1.0);
+        var span = (start - full).abs.max(0.001);
+        var shaped = ((start - pitchNorm) / span).clip(0.0, 1.0);
+
+        1.0 + (boost * shaped);
+    };
+
+    ~swSmoothLiveAmpFor = { |params, activity=0.0|
+        if (((params ? ())[\smoothAmpFollowsActivity] ? true).not) {
+            (((params ? ())[\smoothFixedAmp] ? 0.10).clip(0.0, 0.2));
+        } {
+            activity.clip(0.0, 1.0).linlin(0.0, 1.0, 0.05, 0.13);
+        };
+    };
+
     ~swSmoothScaledAmp = { |params|
-        (((params ? ())[\amp] ? 0.1) * (((params ? ())[\smoothAmpScale]) ? 1.0)).clip(0.0, 0.4);
+        (((params ? ())[\amp] ? 0.1)
+            * (((params ? ())[\smoothAmpScale]) ? 1.0)
+            * ~swSmoothLowPitchAmpScaleFor.(params)).clip(0.0, 0.4);
     };
 
     ~swSmoothSet = { |freq=72, amp=0.1, pan=0.0, vibratoRate=0.18, vibratoDepth=0.006,
         motionDepth=0.06, bloom=0.18, lp=2200, hold=0.06, decay=2.6, crunch=0.0, reverb=0.14|
         var params = (~swAuduinoParams ? ~swAuduinoDefaultParams.copy).copy;
+        var clarity;
 
         params[\voiceMode] = \smoothSine;
         params[\smoothFreq] = freq;
@@ -3033,6 +3846,7 @@ s.waitForBoot {
         params[\amp] = amp;
         params[\pan] = pan;
         ~swAuduinoParams = params;
+        clarity = ~swSmoothBassClarityForPitch.(params, params[\smoothPitchNorm] ? 0.0);
 
         ~swSmoothSpawnNote.(
             freq: freq,
@@ -3046,12 +3860,17 @@ s.waitForBoot {
             hold: hold,
             decay: decay,
             crunch: crunch,
-            reverb: reverb
+            reverb: reverb,
+            bassClarity: clarity,
+            bassClarityHpMax: params[\smoothBassClarityHpMax] ? 62.0,
+            bassClarityMudFreq: params[\smoothBassClarityMudFreq] ? 180.0,
+            bassClarityMudCutDb: params[\smoothBassClarityMudCutDb] ? 4.0
         );
     };
 
     ~swSmoothMonoSet = { |freq=72, amp=0.1, pan=0.0, vibratoRate=0.18, vibratoDepth=0.006,
-        motionDepth=0.06, bloom=0.18, lp=2200, glide=0.0, crunch=0.0, reverb=0.14|
+        motionDepth=0.06, bloom=0.18, lp=2200, glide=0.0, crunch=0.0, reverb=0.14,
+        bassClarity=0.0, bassClarityHpMax=62.0, bassClarityMudFreq=180.0, bassClarityMudCutDb=4.0|
         var voice = ~swSmoothMonoVoice;
 
         if (voice.isNil) {
@@ -3067,6 +3886,10 @@ s.waitForBoot {
                 \glide, glide,
                 \crunch, crunch,
                 \reverb, reverb,
+                \bassClarity, bassClarity,
+                \bassClarityHpMax, bassClarityHpMax,
+                \bassClarityMudFreq, bassClarityMudFreq,
+                \bassClarityMudCutDb, bassClarityMudCutDb,
                 \motionBus, ~swSmoothLayerBusIndex.(),
                 \motionRise, ~swSmoothLayerRiseSeconds.(),
                 \motionFall, ~swMotionFadeOutSeconds
@@ -3089,7 +3912,11 @@ s.waitForBoot {
                 \lp, lp,
                 \glide, glide,
                 \crunch, crunch,
-                \reverb, reverb
+                \reverb, reverb,
+                \bassClarity, bassClarity,
+                \bassClarityHpMax, bassClarityHpMax,
+                \bassClarityMudFreq, bassClarityMudFreq,
+                \bassClarityMudCutDb, bassClarityMudCutDb
             );
         };
 
@@ -3119,24 +3946,42 @@ s.waitForBoot {
     ~swSmoothApplyMonoParams = { |params, midi, noteIndex=nil|
         var nextParams = params.copy;
         var freq = midi.midicps;
+        var clarity = ~swSmoothBassClarityForPitch.(nextParams, nextParams[\smoothPitchNorm] ? 0.0);
+        var scaledAmp;
 
         nextParams[\voiceMode] = \smoothSine;
         nextParams[\smoothFreq] = freq;
         nextParams[\smoothMidi] = midi;
         ~swAuduinoParams = nextParams;
+        scaledAmp = ~swSmoothScaledAmp.(nextParams);
+
+        if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swSmoothMonoDebugAt ? 0.0)) > 0.5 }) {
+            ("Smooth mono note midi=" ++ midi.asString
+                ++ " freq=" ++ freq.round(0.01).asString
+                ++ " amp=" ++ scaledAmp.round(0.001).asString
+                ++ " pitch=" ++ (nextParams[\smoothPitchNorm] ? 0.0).round(0.001).asString
+                ++ " pan=" ++ (nextParams[\pan] ? 0.0).round(0.001).asString
+                ++ " layerOpen=" ++ (~swSmoothLayerGateOpen ? false).asString
+                ++ " bus=" ++ ~swSmoothLayerBusIndex.().asString).postln;
+            ~swSmoothMonoDebugAt = Main.elapsedTime;
+        };
 
         ~swSmoothMonoSet.(
             freq: freq,
-            amp: ~swSmoothScaledAmp.(nextParams),
+            amp: scaledAmp,
             pan: nextParams[\pan] ? 0.0,
             vibratoRate: nextParams[\smoothVibratoRate] ? 0.18,
             vibratoDepth: nextParams[\smoothVibratoDepth] ? 0.006,
             motionDepth: nextParams[\smoothMotionDepth] ? 0.06,
             bloom: nextParams[\smoothBloom] ? 0.18,
             lp: nextParams[\smoothLp] ? 2200,
-            glide: 0.0,
+            glide: nextParams[\smoothGlide] ? 0.0,
             crunch: nextParams[\smoothCrunch] ? 0.0,
-            reverb: nextParams[\smoothReverb] ? 0.14
+            reverb: nextParams[\smoothReverb] ? 0.14,
+            bassClarity: clarity,
+            bassClarityHpMax: nextParams[\smoothBassClarityHpMax] ? 62.0,
+            bassClarityMudFreq: nextParams[\smoothBassClarityMudFreq] ? 180.0,
+            bassClarityMudCutDb: nextParams[\smoothBassClarityMudCutDb] ? 4.0
         );
 
         if (noteIndex.notNil) {
@@ -3200,8 +4045,10 @@ s.waitForBoot {
         var targetPitchNorm = params[\smoothPitchNorm] ? 0.0;
         var smoothing = (params[\smoothPitchSmoothing] ? 0.34).clip(0.0, 1.0);
         var hysteresis = (params[\smoothIndexHysteresis] ? 0.22).clip(0.05, 1.0);
+        var useRawTrigger = params[\smoothTriggerUseRawPitch] ? false;
         var filteredPitchNorm = ~swSmoothFilteredPitchNorm;
         var pitchJump = 0.0;
+        var triggerPitchNorm;
         var targetIndex;
         var currentIndex = ~swSmoothLastIndex;
         var nextIndex;
@@ -3211,7 +4058,15 @@ s.waitForBoot {
         var midi;
         var now = Main.elapsedTime;
         var minInterval = params[\smoothMinInterval] ? 0.07;
-        var intervalReady = (now - (~swSmoothLastTriggerTime ? 0.0)) >= minInterval;
+        var fastJumpThreshold = (params[\smoothFastJumpThreshold] ? 0.55).clip(0.05, 2.0);
+        var fastMinInterval = (params[\smoothFastMinInterval] ? minInterval).clip(0.01, 1.0);
+        var fastJumpAmpScale = (params[\smoothFastJumpAmpScale] ? 1.0).clip(0.0, 1.0);
+        var fastJumpDecayScale = (params[\smoothFastJumpDecayScale] ? 1.0).clip(0.1, 1.0);
+        var rapidPitchJump = false;
+        var effectiveMinInterval;
+        var snapBypassInterval = params[\smoothSnapBypassInterval] ? true;
+        var forcedTrigger = force;
+        var intervalReady;
         var shouldTrigger;
 
         if (filteredPitchNorm.isNil) {
@@ -3225,8 +4080,12 @@ s.waitForBoot {
             };
         };
         ~swSmoothFilteredPitchNorm = filteredPitchNorm;
+        rapidPitchJump = pitchJump >= fastJumpThreshold;
+        effectiveMinInterval = if (rapidPitchJump) { fastMinInterval.max(minInterval) } { minInterval };
+        intervalReady = (now - (~swSmoothLastTriggerTime ? 0.0)) >= effectiveMinInterval;
 
-        targetIndex = ~swSmoothIndexForPitch.(filteredPitchNorm, rootMidi);
+        triggerPitchNorm = if (useRawTrigger) { targetPitchNorm } { filteredPitchNorm };
+        targetIndex = ~swSmoothIndexForPitch.(triggerPitchNorm, rootMidi);
 
         if (currentIndex.isNil) {
             nextIndex = targetIndex.round.clip(0, notes.size - 1).asInteger;
@@ -3251,10 +4110,10 @@ s.waitForBoot {
 
         midi = notes[nextIndex.clip(0, notes.size - 1).asInteger];
 
-        if (shouldTrigger and: { immediateTrigger or: intervalReady }) {
+        if (shouldTrigger and: { intervalReady or: { forcedTrigger or: { immediateTrigger and: { snapBypassInterval } } } }) {
             ~swSmoothSpawnNote.(
                 freq: midi.midicps,
-                amp: ~swSmoothScaledAmp.(params),
+                amp: ~swSmoothScaledAmp.(params) * (if (rapidPitchJump) { fastJumpAmpScale } { 1.0 }),
                 pan: params[\pan] ? 0.0,
                 vibratoRate: params[\smoothVibratoRate] ? 0.18,
                 vibratoDepth: params[\smoothVibratoDepth] ? 0.006,
@@ -3262,9 +4121,13 @@ s.waitForBoot {
                 bloom: params[\smoothBloom] ? 0.18,
                 lp: params[\smoothLp] ? 2200,
                 hold: params[\smoothHold] ? 0.06,
-                decay: params[\smoothDecay] ? 2.6,
+                decay: (params[\smoothDecay] ? 2.6) * (if (rapidPitchJump) { fastJumpDecayScale } { 1.0 }),
                 crunch: params[\smoothCrunch] ? 0.0,
-                reverb: params[\smoothReverb] ? 0.14
+                reverb: params[\smoothReverb] ? 0.14,
+                bassClarity: ~swSmoothBassClarityForPitch.(params, targetPitchNorm),
+                bassClarityHpMax: params[\smoothBassClarityHpMax] ? 62.0,
+                bassClarityMudFreq: params[\smoothBassClarityMudFreq] ? 180.0,
+                bassClarityMudCutDb: params[\smoothBassClarityMudCutDb] ? 4.0
             );
             ~swSmoothLastIndex = nextIndex.clip(0, notes.size - 1).asInteger;
             ~swSmoothLastMidi = midi;
@@ -4984,7 +5847,6 @@ s.waitForBoot {
         var baseRoot = overlay[\smoothAmbientRoot] ? (overlay[\ambientRoot] ? 74);
         var yawOffset = overlay[\smoothAmbientYawOffset];
         var blendState;
-        var variantsToKeep = List.new;
         var singleVariant;
         var singleMapped;
         var pitchShape = pitchNorm.abs;
@@ -5044,6 +5906,9 @@ s.waitForBoot {
                 decorated[\pan] = (((decorated[\pan] ? 0.0) * panScale) + (yawCentered * 0.08)).clip(-0.4, 0.4);
                 decorated[\motionBus] = ~swSmoothLayerLevelBus;
                 decorated[\motionRise] = ~swSmoothLayerRiseSeconds.();
+                if ((overlay[\smoothAmbientAmpFollowsActivity] ? true).not) {
+                    decorated[\amp] = (overlay[\smoothAmbientFixedAmp] ? 0.10).clip(0.0, 0.2);
+                };
                 decorated
             };
 
@@ -5064,12 +5929,12 @@ s.waitForBoot {
                     ambientBlendMix: blendState[\secondaryWeight]
                 ));
 
-                variantsToKeep.add(blendState[\primaryVariant]);
-                if (blendState[\secondaryVariant] != blendState[\primaryVariant]) {
-                    variantsToKeep.add(blendState[\secondaryVariant]);
-                };
-
-                variantsToKeep.do { |variant|
+                // Keep every ring variant alive and crossfade by blend weight (as the
+                // ambient-flow mode does). Releasing variants that left the blend pair and
+                // re-creating them when the heading swung back stacked ~20 fading voices
+                // during fast waving and overloaded the Pi's audio server (Sep 2026).
+                // Each voice already smooths amp changes with a 0.8 s lag.
+                ~swAmbientVariantKeys.do { |variant|
                     var mapped = ~swAmbientMapFromMotion.(overlay, activity, pitchNorm, rollNorm, spinNorm, variant);
                     var weight = 0.0;
 
@@ -5085,7 +5950,7 @@ s.waitForBoot {
                     ~swAmbientApplyMappedParams.(mapped, variant);
                 };
 
-                ~swAmbientReleaseVariantsExcept.(variantsToKeep.asArray);
+                ~swAmbientReleaseVariantsExcept.(~swAmbientVariantKeys);
             } {
                 singleVariant = overlay[\ambientVariant] ? \flow;
                 singleMapped = ~swAmbientMapFromMotion.(overlay, activity, pitchNorm, rollNorm, spinNorm, singleVariant);
@@ -5275,6 +6140,7 @@ s.waitForBoot {
     };
 
     ~swSmoothChoirSet = { |rootFreq=220, amp=0.60, synthAmp=0.46, pan=0.0, spread=0.78, shimmer=0.12, breath=0.07, brightness=0.28,
+        choirFxMix=0.32, choirDelayMix=0.14, choirAir=0.36, choirBassAmp=0.0, choirBassTone=0.42,
         sampleStart=0.0, textureMode=4, basePitchHz=176.47, trigger=false, fadeIn=0.5, holdTime=0.28, fadeOut=4.2,
         octaveDown3=0, octaveDown2=1, octaveDown1=1, octaveUp1=0, octaveUp2=0, octaveUp3=0|
         var voice = ~swSmoothChoirEnsure.();
@@ -5295,6 +6161,11 @@ s.waitForBoot {
                 \shimmer, shimmer,
                 \breath, breath,
                 \brightness, brightness,
+                \choirFxMix, choirFxMix,
+                \choirDelayMix, choirDelayMix,
+                \choirAir, choirAir,
+                \choirBassAmp, choirBassAmp,
+                \choirBassTone, choirBassTone,
                 \sampleStart, sampleStart,
                 \basePitchHz, basePitchHz,
                 \fadeIn, fadeIn,
@@ -5319,6 +6190,11 @@ s.waitForBoot {
                 \shimmer, shimmer,
                 \breath, breath,
                 \brightness, brightness,
+                \choirFxMix, choirFxMix,
+                \choirDelayMix, choirDelayMix,
+                \choirAir, choirAir,
+                \choirBassAmp, choirBassAmp,
+                \choirBassTone, choirBassTone,
                 \sampleStart, sampleStart,
                 \fadeIn, fadeIn,
                 \holdTime, holdTime,
@@ -5338,6 +6214,8 @@ s.waitForBoot {
     };
 
     ~swChoirTextureDemoPlay = { |choirAmp=0.60, synthAmp=0.46, sampleStart=0.0, synthMode=4,
+        spread=0.78, shimmer=0.12, breath=0.07, brightness=0.28,
+        choirFxMix=0.32, choirDelayMix=0.14, choirAir=0.36, choirBassAmp=0.0, choirBassTone=0.42,
         octaveDown3=0, octaveDown2=1, octaveDown1=1, octaveUp1=0, octaveUp2=0, octaveUp3=0|
         var choirPitchHz = ~swChoirSamplePitchHz ? 176.47;
         var synthName = [
@@ -5354,7 +6232,12 @@ s.waitForBoot {
             ~swChoirRawPreview = Synth(\spacewizardChoirRawSamplePlayer, [
                 \buf, ~swChoirBufNumAt.(0),
                 \amp, choirAmp.clip(0.0, 0.6),
-                \sampleStart, sampleStart.clip(0.0, 5.0)
+                \sampleStart, sampleStart.clip(0.0, 5.0),
+                \fxMix, choirFxMix.clip(0.0, 1.0),
+                \delayMix, choirDelayMix.clip(0.0, 1.0),
+                \air, choirAir.clip(0.0, 1.0),
+                \brightness, brightness.clip(0.0, 1.0),
+                \spread, spread.clip(0.1, 1.0)
             ]);
             ~swChoirRawPreview.onFree { ~swChoirRawPreview = nil; };
 
@@ -5363,6 +6246,15 @@ s.waitForBoot {
                 \synthAmp, synthAmp.clip(0.0, 0.8),
                 \sampleStart, sampleStart.clip(0.0, 5.0),
                 \basePitchHz, choirPitchHz,
+                \spread, spread.clip(0.1, 1.0),
+                \shimmer, shimmer.clip(0.0, 1.0),
+                \breath, breath.clip(0.0, 0.2),
+                \brightness, brightness.clip(0.0, 1.0),
+                \hallMixCtl, choirFxMix.clip(0.0, 1.0),
+                \hallRoomCtl, (0.42 + (choirFxMix.clip(0.0, 1.0) * 0.38)).clip(0.0, 1.0),
+                \hallDampCtl, (0.58 - (brightness.clip(0.0, 1.0) * 0.22)).clip(0.0, 1.0),
+                \bassAmp, choirBassAmp.clip(0.0, 0.45),
+                \bassTone, choirBassTone.clip(0.0, 1.0),
                 \octaveDown3, octaveDown3.clip(0.0, 1.0),
                 \octaveDown2, octaveDown2.clip(0.0, 1.0),
                 \octaveDown1, octaveDown1.clip(0.0, 1.0),
@@ -5437,6 +6329,11 @@ s.waitForBoot {
                 shimmer: ((params[\smoothChoirShimmer] ? 0.12) + (yawNorm * 0.18) + (rollShape * 0.06)).clip(0.0, 1.0),
                 breath: ((params[\smoothChoirBreath] ? 0.07) + (pitchNorm.abs * 0.01)).clip(0.0, 0.18),
                 brightness: ((params[\smoothChoirBrightness] ? 0.28) + pitchNorm.linlin(-1.0, 1.0, -0.06, 0.14) + (yawNorm * 0.06)).clip(0.0, 1.0),
+                choirFxMix: params[\smoothChoirFxMix] ? 0.32,
+                choirDelayMix: params[\smoothChoirDelayMix] ? 0.14,
+                choirAir: params[\smoothChoirAir] ? 0.36,
+                choirBassAmp: params[\smoothChoirBassAmp] ? 0.0,
+                choirBassTone: params[\smoothChoirBassTone] ? 0.42,
                 sampleStart: params[\smoothChoirSampleStart] ? 0.0,
                 basePitchHz: ~swChoirSamplePitchHz ? 176.47,
                 textureMode: params[\smoothChoirTexture] ? 4,
@@ -5527,6 +6424,17 @@ s.waitForBoot {
         var params = ~swAuduinoParams;
         var voiceMode = params[\voiceMode] ? \auduino;
 
+        if (voiceMode == \song) {
+            // Song mode has no continuous voice; the song itself follows the motion gate.
+            ~swAuduinoStopAll.();
+            ~swAmbientStop.();
+            ~swAmbientLabStopVoiceOnly.();
+            ~swAmbientLabStopOverlay.();
+            ~swSmoothStop.();
+            ~swSmoothChoirStop.();
+            ~swReeseStop.();
+            ~swWowStop.();
+        } {
         if (voiceMode == \ambientFlow) {
             ~swAuduinoStopAll.();
             ~swSmoothStop.();
@@ -5575,6 +6483,7 @@ s.waitForBoot {
                 };
             };
         };
+        };
     };
 
     ~swSetLiveMode = { |voiceMode=\auduino|
@@ -5582,7 +6491,8 @@ s.waitForBoot {
             if (voiceMode == \ambientFlow) { \ambientFlow }
             { if (voiceMode == \smoothSine) { \smoothSine }
                 { if (voiceMode == \reeseBass) { \reeseBass }
-                    { if (voiceMode == \wowVoice) { \wowVoice } { \auduino } } } };
+                    { if (voiceMode == \wowVoice) { \wowVoice }
+                        { if (voiceMode == \song) { \song } { \auduino } } } } };
         var params = (~swAuduinoParams ? ~swAuduinoDefaultParams.copy).copy;
 
         params[\voiceMode] = selectedMode;
@@ -5601,6 +6511,10 @@ s.waitForBoot {
         };
         if (selectedMode == \ambientFlow) {
             params = params.putAll(~swAmbientPresetFor.(params[\ambientVariant] ? (~swRequestedAmbientVariant ? \flow)));
+        };
+        if (selectedMode == \song) {
+            params = params.putAll(~swSoundPresetOverridesFor.(\song, ~swRequestedSongPreset ? \dayO));
+            ~swLoadSongBuffer.(params);
         };
         params[\voiceMode] = selectedMode;
         ~swAuduinoParams = params;
@@ -6815,37 +7729,148 @@ s.waitForBoot {
         var makeToggle;
         var infoView;
         var updateInfo;
+        var updateActivePreview;
+        var applyToLiveParams;
+        var valuesText;
+        var printValues;
         var playRaw;
+        var playChoirFx;
+        var playSynthOnly;
         var playBlend;
 
         defaultParams = (
-            choirAmp: 0.60,
-            synthAmp: 0.46,
+            choirAmp: (~swAuduinoParams[\smoothChoirAmp] ? 0.46).clip(0.0, 0.6),
+            synthAmp: (~swAuduinoParams[\smoothChoirSynthAmp] ? 0.74).clip(0.0, 0.8),
             sampleStart: (~swAuduinoParams[\smoothChoirSampleStart] ? 0.0).clip(0.0, 5.0),
-            synthMode: 4,
-            octaveDown3: 0,
-            octaveDown2: 1,
-            octaveDown1: 1,
-            octaveUp1: 0,
-            octaveUp2: 0,
-            octaveUp3: 0
+            synthMode: (~swAuduinoParams[\smoothChoirTexture] ? 4).asInteger.clip(0, 5),
+            spread: (~swAuduinoParams[\smoothChoirSpread] ? 0.78).clip(0.1, 1.0),
+            shimmer: (~swAuduinoParams[\smoothChoirShimmer] ? 0.18).clip(0.0, 1.0),
+            breath: (~swAuduinoParams[\smoothChoirBreath] ? 0.08).clip(0.0, 0.2),
+            brightness: (~swAuduinoParams[\smoothChoirBrightness] ? 0.34).clip(0.0, 1.0),
+            choirFxMix: (~swAuduinoParams[\smoothChoirFxMix] ? 0.42).clip(0.0, 1.0),
+            choirDelayMix: (~swAuduinoParams[\smoothChoirDelayMix] ? 0.22).clip(0.0, 1.0),
+            choirAir: (~swAuduinoParams[\smoothChoirAir] ? 0.52).clip(0.0, 1.0),
+            choirBassAmp: (~swAuduinoParams[\smoothChoirBassAmp] ? 0.16).clip(0.0, 0.45),
+            choirBassTone: (~swAuduinoParams[\smoothChoirBassTone] ? 0.42).clip(0.0, 1.0),
+            fadeIn: (~swAuduinoParams[\smoothChoirFadeIn] ? 0.5).clip(0.01, 1.5),
+            holdTime: (~swAuduinoParams[\smoothChoirHold] ? 0.28).clip(0.0, 3.0),
+            fadeOut: (~swAuduinoParams[\smoothChoirFadeOut] ? 4.2).clip(0.2, 9.0),
+            octaveDown3: (~swAuduinoParams[\smoothChoirOctaveDown3] ? 0).asInteger,
+            octaveDown2: (~swAuduinoParams[\smoothChoirOctaveDown2] ? 1).asInteger,
+            octaveDown1: (~swAuduinoParams[\smoothChoirOctaveDown1] ? 1).asInteger,
+            octaveUp1: (~swAuduinoParams[\smoothChoirOctaveUp1] ? 0).asInteger,
+            octaveUp2: (~swAuduinoParams[\smoothChoirOctaveUp2] ? 0).asInteger,
+            octaveUp3: (~swAuduinoParams[\smoothChoirOctaveUp3] ? 0).asInteger
         );
-        params = (~swChoirBlendParams ? defaultParams).copy;
+        params = defaultParams.copy.putAll(~swChoirBlendParams ? ());
 
         if (~swChoirTextureWindow.notNil) {
             ~swChoirTextureWindow.close;
         };
 
-        updateInfo = {
+        valuesText = {
+            "smoothChoirAmp: " ++ params[\choirAmp].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirSynthAmp: " ++ params[\synthAmp].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirSpread: " ++ params[\spread].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirShimmer: " ++ params[\shimmer].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirBreath: " ++ params[\breath].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirBrightness: " ++ params[\brightness].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirFxMix: " ++ params[\choirFxMix].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirDelayMix: " ++ params[\choirDelayMix].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirAir: " ++ params[\choirAir].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirBassAmp: " ++ params[\choirBassAmp].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirBassTone: " ++ params[\choirBassTone].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirSampleStart: " ++ params[\sampleStart].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirTexture: " ++ params[\synthMode].asInteger.asString ++ ",\n"
+            ++ "smoothChoirFadeIn: " ++ params[\fadeIn].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirHold: " ++ params[\holdTime].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirFadeOut: " ++ params[\fadeOut].round(0.001).asString ++ ",\n"
+            ++ "smoothChoirOctaveDown3: " ++ params[\octaveDown3].asInteger.asString ++ ",\n"
+            ++ "smoothChoirOctaveDown2: " ++ params[\octaveDown2].asInteger.asString ++ ",\n"
+            ++ "smoothChoirOctaveDown1: " ++ params[\octaveDown1].asInteger.asString ++ ",\n"
+            ++ "smoothChoirOctaveUp1: " ++ params[\octaveUp1].asInteger.asString ++ ",\n"
+            ++ "smoothChoirOctaveUp2: " ++ params[\octaveUp2].asInteger.asString ++ ",\n"
+            ++ "smoothChoirOctaveUp3: " ++ params[\octaveUp3].asInteger.asString;
+        };
+
+        updateInfo = { |message=nil|
             var sourceSummary = (~swChoirHasSamples ? false).if(
                 "Sample-backed choir loaded.",
                 "No sample loaded; using synth fallback choir."
             );
 
             infoView.string_(
-                sourceSummary
-                ++ " The raw sample is near F3 (176.5 Hz). 'Play Original + Synth Octaves' keeps the sample untouched and adds the selected synth voice with independent choir/synth loudness and octave layers around that same pitch."
+                message ? (sourceSummary ++ " Move sliders while a preview is playing; use Print Values when you find a good setting.")
             );
+        };
+
+        updateActivePreview = {
+            if (~swChoirRawPreview.notNil) {
+                ~swChoirRawPreview.set(
+                    \amp, params[\choirAmp],
+                    \fxMix, params[\choirFxMix],
+                    \delayMix, params[\choirDelayMix],
+                    \air, params[\choirAir],
+                    \brightness, params[\brightness],
+                    \spread, params[\spread]
+                );
+            };
+            if (~swChoirBlendPreview.notNil) {
+                ~swChoirBlendPreview.set(
+                    \synthAmp, params[\synthAmp],
+                    \spread, params[\spread],
+                    \shimmer, params[\shimmer],
+                    \breath, params[\breath],
+                    \brightness, params[\brightness],
+                    \hallMixCtl, params[\choirFxMix],
+                    \hallRoomCtl, (0.42 + (params[\choirFxMix] * 0.38)).clip(0.0, 1.0),
+                    \hallDampCtl, (0.58 - (params[\brightness] * 0.22)).clip(0.0, 1.0),
+                    \bassAmp, params[\choirBassAmp],
+                    \bassTone, params[\choirBassTone],
+                    \octaveDown3, params[\octaveDown3],
+                    \octaveDown2, params[\octaveDown2],
+                    \octaveDown1, params[\octaveDown1],
+                    \octaveUp1, params[\octaveUp1],
+                    \octaveUp2, params[\octaveUp2],
+                    \octaveUp3, params[\octaveUp3]
+                );
+            };
+            ~swChoirBlendParams = params.copy;
+        };
+
+        applyToLiveParams = {
+            var live = (~swAuduinoParams ? ~swAuduinoDefaultParams.copy).copy;
+            live[\smoothChoirAmp] = params[\choirAmp];
+            live[\smoothChoirSynthAmp] = params[\synthAmp];
+            live[\smoothChoirSpread] = params[\spread];
+            live[\smoothChoirShimmer] = params[\shimmer];
+            live[\smoothChoirBreath] = params[\breath];
+            live[\smoothChoirBrightness] = params[\brightness];
+            live[\smoothChoirFxMix] = params[\choirFxMix];
+            live[\smoothChoirDelayMix] = params[\choirDelayMix];
+            live[\smoothChoirAir] = params[\choirAir];
+            live[\smoothChoirBassAmp] = params[\choirBassAmp];
+            live[\smoothChoirBassTone] = params[\choirBassTone];
+            live[\smoothChoirSampleStart] = params[\sampleStart];
+            live[\smoothChoirTexture] = params[\synthMode];
+            live[\smoothChoirFadeIn] = params[\fadeIn];
+            live[\smoothChoirHold] = params[\holdTime];
+            live[\smoothChoirFadeOut] = params[\fadeOut];
+            live[\smoothChoirOctaveDown3] = params[\octaveDown3];
+            live[\smoothChoirOctaveDown2] = params[\octaveDown2];
+            live[\smoothChoirOctaveDown1] = params[\octaveDown1];
+            live[\smoothChoirOctaveUp1] = params[\octaveUp1];
+            live[\smoothChoirOctaveUp2] = params[\octaveUp2];
+            live[\smoothChoirOctaveUp3] = params[\octaveUp3];
+            ~swAuduinoParams = live;
+            ~swSmoothChoirApplyCurrent.();
+            updateInfo.("Applied to current live choir params.\n" ++ valuesText.());
+        };
+
+        printValues = {
+            var text = valuesText.();
+            ("Choir preset values:\n" ++ text).postln;
+            updateInfo.(text);
         };
 
         playRaw = {
@@ -6854,7 +7879,59 @@ s.waitForBoot {
                 amp: params[\choirAmp],
                 sampleStart: params[\sampleStart]
             );
-            updateInfo.();
+            updateInfo.("Original sample only. Blend/effects sliders do not affect this raw preview.");
+        };
+
+        playChoirFx = {
+            ~swChoirBlendParams = params.copy;
+            ~swChoirTextureDemoPlay.(
+                choirAmp: params[\choirAmp],
+                synthAmp: 0.0,
+                sampleStart: params[\sampleStart],
+                synthMode: params[\synthMode],
+                spread: params[\spread],
+                shimmer: params[\shimmer],
+                breath: params[\breath],
+                brightness: params[\brightness],
+                choirFxMix: params[\choirFxMix],
+                choirDelayMix: params[\choirDelayMix],
+                choirAir: params[\choirAir],
+                choirBassAmp: 0.0,
+                choirBassTone: params[\choirBassTone],
+                octaveDown3: 0,
+                octaveDown2: 0,
+                octaveDown1: 0,
+                octaveUp1: 0,
+                octaveUp2: 0,
+                octaveUp3: 0
+            );
+            updateInfo.("Choir sample with effects only.");
+        };
+
+        playSynthOnly = {
+            ~swChoirBlendParams = params.copy;
+            ~swChoirTextureDemoPlay.(
+                choirAmp: 0.0,
+                synthAmp: params[\synthAmp],
+                sampleStart: params[\sampleStart],
+                synthMode: params[\synthMode],
+                spread: params[\spread],
+                shimmer: params[\shimmer],
+                breath: params[\breath],
+                brightness: params[\brightness],
+                choirFxMix: params[\choirFxMix],
+                choirDelayMix: params[\choirDelayMix],
+                choirAir: params[\choirAir],
+                choirBassAmp: 0.0,
+                choirBassTone: params[\choirBassTone],
+                octaveDown3: params[\octaveDown3],
+                octaveDown2: params[\octaveDown2],
+                octaveDown1: params[\octaveDown1],
+                octaveUp1: params[\octaveUp1],
+                octaveUp2: params[\octaveUp2],
+                octaveUp3: params[\octaveUp3]
+            );
+            updateInfo.("Synth only. Choir sample and soft bass are muted.");
         };
 
         playBlend = {
@@ -6864,6 +7941,15 @@ s.waitForBoot {
                 synthAmp: params[\synthAmp],
                 sampleStart: params[\sampleStart],
                 synthMode: params[\synthMode],
+                spread: params[\spread],
+                shimmer: params[\shimmer],
+                breath: params[\breath],
+                brightness: params[\brightness],
+                choirFxMix: params[\choirFxMix],
+                choirDelayMix: params[\choirDelayMix],
+                choirAir: params[\choirAir],
+                choirBassAmp: params[\choirBassAmp],
+                choirBassTone: params[\choirBassTone],
                 octaveDown3: params[\octaveDown3],
                 octaveDown2: params[\octaveDown2],
                 octaveDown1: params[\octaveDown1],
@@ -6874,35 +7960,36 @@ s.waitForBoot {
             updateInfo.();
         };
 
-        win = Window("SpaceWizard Choir Blend Lab", Rect(160, 110, 500, 450));
+        win = Window("SpaceWizard Choir Lab", Rect(140, 40, 680, 830));
         win.alwaysOnTop_(true);
         ~swChoirTextureWindow = win;
 
-        StaticText(win, Rect(12, 8, 476, 42))
-            .string_("Compare the exact choir file against the original sample plus selectable synth voices. The raw button plays the loaded sample directly from disk; the blend button keeps that sample untouched and adds the selected synth with independent choir/synth loudness.")
+        StaticText(win, Rect(12, 8, 656, 34))
+            .string_("Tune the choir sample effects, the added synth voice, octave layers, and soft bass support. Sliders update a playing preview where possible.")
             .align_(\left);
 
-        StaticText(win, Rect(12, 60, 72, 18))
+        StaticText(win, Rect(12, 50, 72, 18))
             .string_("Synth")
             .align_(\left);
 
-        PopUpMenu(win, Rect(84, 58, 200, 24))
+        PopUpMenu(win, Rect(84, 48, 200, 24))
             .items_(synthLabels)
             .value_(params[\synthMode].asInteger)
             .action_({ |menu|
                 var selected = synthOptions[menu.value] ? synthOptions.first;
                 params[\synthMode] = selected[\key];
-                updateInfo.();
+                updateInfo.("Synth texture changed. Replay the blend to hear the new synth model.");
             });
 
         makeSlider = { |label, key, spec, top|
             EZSlider(
                 win,
-                Rect(12, top, 476, 28),
+                Rect(12, top, 656, 24),
                 label,
                 spec,
                 { |view|
                     params[key] = view.value;
+                    updateActivePreview.();
                 },
                 params[key],
                 layout: 'horz'
@@ -6910,7 +7997,7 @@ s.waitForBoot {
         };
 
         makeToggle = { |label, key, left, top|
-            Button(win, Rect(left, top, 150, 32))
+            Button(win, Rect(left, top, 102, 28))
                 .states_([
                     [label ++ " off"],
                     [label ++ " on"]
@@ -6918,49 +8005,72 @@ s.waitForBoot {
                 .value_(params[key].asInteger)
                 .action_({ |button|
                     params[key] = button.value.asInteger;
+                    updateActivePreview.();
                 });
         };
 
-        makeSlider.("Choir Level", \choirAmp, ControlSpec(0.0, 0.6, \lin, 0.001, params[\choirAmp]), 94);
-        makeSlider.("Synth Level", \synthAmp, ControlSpec(0.0, 0.8, \lin, 0.001, params[\synthAmp]), 128);
-        makeSlider.("Sample Start", \sampleStart, ControlSpec(0.0, 4.5, \lin, 0.01, params[\sampleStart]), 162);
+        makeSlider.("Choir Level", \choirAmp, ControlSpec(0.0, 0.6, \lin, 0.001, params[\choirAmp]), 84);
+        makeSlider.("Synth Level", \synthAmp, ControlSpec(0.0, 0.8, \lin, 0.001, params[\synthAmp]), 112);
+        makeSlider.("Soft Bass", \choirBassAmp, ControlSpec(0.0, 0.45, \lin, 0.001, params[\choirBassAmp]), 140);
+        makeSlider.("Bass Tone", \choirBassTone, ControlSpec(0.0, 1.0, \lin, 0.001, params[\choirBassTone]), 168);
 
-        StaticText(win, Rect(12, 196, 476, 18))
-            .string_("Synth octave layers around the sample pitch")
+        makeSlider.("Spread", \spread, ControlSpec(0.1, 1.0, \lin, 0.001, params[\spread]), 208);
+        makeSlider.("Shimmer", \shimmer, ControlSpec(0.0, 1.0, \lin, 0.001, params[\shimmer]), 236);
+        makeSlider.("Breath", \breath, ControlSpec(0.0, 0.2, \lin, 0.001, params[\breath]), 264);
+        makeSlider.("Brightness", \brightness, ControlSpec(0.0, 1.0, \lin, 0.001, params[\brightness]), 292);
+        makeSlider.("Choir Reverb", \choirFxMix, ControlSpec(0.0, 1.0, \lin, 0.001, params[\choirFxMix]), 320);
+        makeSlider.("Choir Echo", \choirDelayMix, ControlSpec(0.0, 1.0, \lin, 0.001, params[\choirDelayMix]), 348);
+        makeSlider.("Choir Air", \choirAir, ControlSpec(0.0, 1.0, \lin, 0.001, params[\choirAir]), 376);
+
+        makeSlider.("Sample Start", \sampleStart, ControlSpec(0.0, 4.5, \lin, 0.01, params[\sampleStart]), 416);
+        makeSlider.("Fade In", \fadeIn, ControlSpec(0.01, 1.5, \lin, 0.01, params[\fadeIn]), 444);
+        makeSlider.("Hold", \holdTime, ControlSpec(0.0, 3.0, \lin, 0.01, params[\holdTime]), 472);
+        makeSlider.("Fade Out", \fadeOut, ControlSpec(0.2, 9.0, \lin, 0.01, params[\fadeOut]), 500);
+
+        StaticText(win, Rect(12, 536, 656, 18))
+            .string_("Synth octave layers")
             .align_(\left);
 
-        makeToggle.("-3 oct", \octaveDown3, 12, 220);
-        makeToggle.("-2 oct", \octaveDown2, 174, 220);
-        makeToggle.("-1 oct", \octaveDown1, 336, 220);
-        makeToggle.("+1 oct", \octaveUp1, 12, 258);
-        makeToggle.("+2 oct", \octaveUp2, 174, 258);
-        makeToggle.("+3 oct", \octaveUp3, 336, 258);
+        makeToggle.("-3 oct", \octaveDown3, 12, 560);
+        makeToggle.("-2 oct", \octaveDown2, 124, 560);
+        makeToggle.("-1 oct", \octaveDown1, 236, 560);
+        makeToggle.("+1 oct", \octaveUp1, 348, 560);
+        makeToggle.("+2 oct", \octaveUp2, 460, 560);
+        makeToggle.("+3 oct", \octaveUp3, 572, 560);
 
-        Button(win, Rect(12, 306, 230, 40))
-            .states_([[
-                "Play Original Sample"
-            ]])
+        Button(win, Rect(12, 604, 122, 34))
+            .states_([["Original"]])
             .action_({ playRaw.(); });
 
-        Button(win, Rect(258, 306, 230, 40))
-            .states_([[
-                "Play Original + Synth Octaves"
-            ]])
+        Button(win, Rect(144, 604, 122, 34))
+            .states_([["Choir FX"]])
+            .action_({ playChoirFx.(); });
+
+        Button(win, Rect(276, 604, 122, 34))
+            .states_([["Synth Only"]])
+            .action_({ playSynthOnly.(); });
+
+        Button(win, Rect(408, 604, 122, 34))
+            .states_([["Full Blend"]])
             .action_({ playBlend.(); });
 
-        Button(win, Rect(12, 358, 230, 30))
-            .states_([[
-                "Replay Current Blend"
-            ]])
-            .action_({ playBlend.(); });
-
-        Button(win, Rect(258, 358, 88, 30))
-            .states_([[
-                "Stop"
-            ]])
+        Button(win, Rect(542, 604, 82, 34))
+            .states_([["Stop"]])
             .action_({ ~swChoirTextureDemoStop.(); });
 
-        infoView = StaticText(win, Rect(12, 398, 476, 46))
+        Button(win, Rect(12, 648, 150, 30))
+            .states_([["Replay Blend"]])
+            .action_({ playBlend.(); });
+
+        Button(win, Rect(174, 648, 150, 30))
+            .states_([["Apply Live"]])
+            .action_({ applyToLiveParams.(); });
+
+        Button(win, Rect(336, 648, 150, 30))
+            .states_([["Print Values"]])
+            .action_({ printValues.(); });
+
+        infoView = StaticText(win, Rect(12, 690, 656, 130))
             .align_(\left);
         updateInfo.();
 
@@ -6969,7 +8079,7 @@ s.waitForBoot {
             ~swChoirTextureDemoStop.();
         });
         win.front;
-	    };
+    };
 
     ~swImpactDrum = { |jerk=0.0, deviation=0.0, activity=0.0|
         var params = ~swAuduinoParams ? ~swAuduinoDefaultParams.copy;
@@ -7012,6 +8122,66 @@ s.waitForBoot {
         };
     }, '/spacewizard/impact');
 
+    OSCdef(\swPing, { |msg|
+        var freq = (msg[1] ? 880).clip(80.0, 2000.0);
+        var amp = (msg[2] ? 0.14).clip(0.0, 0.4);
+        var ping = Synth(\default, [\freq, freq, \amp, amp]);
+        ("SpaceWizard OSC ping freq=" ++ freq.asString ++ " amp=" ++ amp.asString).postln;
+        AppClock.sched(0.5, {
+            if (ping.notNil) {
+                ping.set(\gate, 0);
+            };
+            nil;
+        });
+    }, '/spacewizard/ping');
+
+    OSCdef(\swDebugControl, { |msg|
+        var enabled = (msg[1] ? 1) > 0;
+        ~swLiveOscDebugEnabled = enabled;
+        ("SpaceWizard live OSC debug " ++ enabled.asString).postln;
+    }, '/spacewizard/debug');
+
+    OSCdef(\swSmoothProbe, { |msg|
+        var freq = (msg[1] ? 110).clip(40.0, 600.0);
+        var amp = (msg[2] ? 0.32).clip(0.0, 0.6);
+        var seconds = (msg[3] ? 4.0).clip(0.5, 20.0);
+        var bus = Bus.control(s, 1);
+        var voice;
+
+        bus.set(1.0);
+
+        voice = Synth(\spacewizardSmoothSineMono, [
+            \freq, freq,
+            \amp, amp,
+            \pan, 0.0,
+            \vibratoRate, 0.3,
+            \vibratoDepth, 0.002,
+            \motionDepth, 0.02,
+            \bloom, 0.12,
+            \lp, 2600,
+            \glide, 0.02,
+            \crunch, 0.0,
+            \reverb, 0.18,
+            \bassClarity, 0.0,
+            \motionBus, bus.index,
+            \motionRise, 0.01,
+            \motionFall, 1.0
+        ]);
+        ("SpaceWizard smooth probe freq=" ++ freq.asString
+            ++ " amp=" ++ amp.asString
+            ++ " seconds=" ++ seconds.asString
+            ++ " bus=" ++ bus.index.asString).postln;
+        AppClock.sched(seconds, {
+            if (voice.notNil) {
+                voice.set(\gate, 0);
+            };
+            if (bus.notNil) {
+                bus.free;
+            };
+            nil;
+        });
+    }, '/spacewizard/smooth_probe');
+
     OSCdef(\swGate, { |msg|
         var gate = (msg[1] ? 0).clip(0.0, 1.0);
         ~swSetMotionGate.(gate > 0.0);
@@ -7049,6 +8219,8 @@ s.waitForBoot {
         ~swRequestLiveStatusGUIRefresh.();
     };
 
+
+
     OSCdef(\swLiveStatus, { |msg|
         var gate = (msg[1] ? 0.0).clip(0.0, 1.0);
         var activity = (msg[2] ? 0.0).clip(0.0, 1.0);
@@ -7076,17 +8248,50 @@ s.waitForBoot {
         var blendState;
         var tone;
 
-        ~swUpdateLiveInputState.(gate, activity, pitchNorm, rollNorm, spinNorm, yawNorm);
+        // The optional seventh value distinguishes missing input from genuine rest.
+        // Six-value packets remain compatible with existing bridge/test senders.
+        ~swLastLiveControlAt = Main.elapsedTime;
+        ~swLiveInputValid = (msg[7] ? 1.0) > 0.0;
+        if (~swLiveInputValid.not) { gate = 0.0; activity = 0.0; spinNorm = 0.0; };
 
-        if (voiceMode == \smoothSine) {
+        if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swAuduinoOscDebugAt ? 0.0)) > 0.5 }) {
+            ("Auduino OSC recv gate=" ++ gate.round(0.001).asString
+                ++ " activity=" ++ activity.round(0.001).asString
+                ++ " pitch=" ++ pitchNorm.round(0.001).asString
+                ++ " roll=" ++ rollNorm.round(0.001).asString
+                ++ " spin=" ++ spinNorm.round(0.001).asString
+                ++ " mode=" ++ voiceMode.asString
+                ++ " exp=" ++ (params[\smoothExperiment] ? \none).asString).postln;
+            ~swAuduinoOscDebugAt = Main.elapsedTime;
+        };
+
+        ~swUpdateLiveInputState.(gate, activity, pitchNorm, rollNorm, spinNorm, yawNorm);
+        if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swAuduinoFlowDebugAt ? 0.0)) > 0.5 }) {
+            "Auduino after live input update".postln;
+        };
+
+        if (voiceMode == \song) {
+            // Regular gate: lights/stand prompt semantics and cleanup. Song gate (msg[8]):
+            // the less sensitive on/off that actually starts and stops the song.
             ~swSetMotionGate.(gate > 0.0);
+            ~swSongSetEnergy.(if (~swLiveInputValid) { msg[9] ? 1.0 } { 0.0 });
+            ~swSongSetGate.((gate > 0.0) and: { (msg[8] ? gate) > 0.0 });
+            ~swAuduinoParams = params;
+        } {
+        if (voiceMode == \smoothSine) {
+            if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swAuduinoFlowDebugAt ? 0.0)) > 0.5 }) {
+                "Auduino entering smoothSine branch".postln;
+            };
+            ~swSetMotionGate.(gate > 0.0);
+            if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swAuduinoFlowDebugAt ? 0.0)) > 0.5 }) {
+                "Auduino after motion gate".postln;
+                ~swAuduinoFlowDebugAt = Main.elapsedTime;
+            };
             params[\smoothPitchNorm] = pitchNorm;
             params[\smoothExperiment] = params[\smoothExperiment] ? \triggeredNotes;
             ~swAuduinoParams = params;
 
             if (gate > 0.0) {
-                params[\smoothPitchSmoothing] = activity.linlin(0.0, 1.0, 0.30, 0.55);
-                params[\smoothIndexHysteresis] = 0.22;
                 params[\smoothMidi] = ~swSmoothMidiForPitch.(pitchNorm, params[\smoothRootMidi] ? 38);
                 params[\smoothFreq] = (params[\smoothMidi] ? 43).midicps;
                 params[\smoothVibratoRate] = spinNorm.linexp(0.0, 1.0, 0.05, 1.9) * yawNorm.linexp(0.0, 1.0, 0.88, 1.42);
@@ -7098,10 +8303,9 @@ s.waitForBoot {
                 params[\smoothCrunch] = tone[\crunch];
                 params[\smoothReverb] = tone[\reverb];
                 params[\smoothHold] = activity.linlin(0.0, 1.0, 0.04, 0.11) + (yawShape * 0.025);
-                params[\smoothDecay] = activity.linlin(0.0, 1.0, 1.7, 3.2) + yawNorm.linlin(0.0, 1.0, -0.1, 1.0);
-                params[\smoothMinInterval] = activity.linlin(0.0, 1.0, 0.04, 0.025);
+                params[\smoothDecay] = ~swSmoothLiveDecayFor.(params, activity, yawNorm);
                 params[\pan] = (((rollNorm * 0.72) + (yawCentered * 0.28)).clip(-1.0, 1.0)).linlin(-1.0, 1.0, -0.26, 0.26);
-                params[\amp] = activity.linlin(0.0, 1.0, 0.05, 0.13);
+                params[\amp] = ~swSmoothLiveAmpFor.(params, activity);
                 if (params[\smoothChoirSolo] ? false) {
                     ~swSmoothStop.();
                     ~swAmbientStop.();
@@ -7112,6 +8316,14 @@ s.waitForBoot {
                     ~swSmoothChoirApplyMotion.(params, pitchNorm, rollNorm, yawNorm, gate);
                     ~swAuduinoParams = params;
                     ~swSmoothApplyActiveTone.(params);
+
+                    if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swSmoothBranchDebugAt ? 0.0)) > 0.5 }) {
+                        ("Smooth branch exp=" ++ (params[\smoothExperiment] ? \none).asString
+                            ++ " ampBase=" ++ (params[\amp] ? 0.0).round(0.001).asString
+                            ++ " ampScale=" ++ (params[\smoothAmpScale] ? 1.0).round(0.001).asString
+                            ++ " layerOpen=" ++ (~swSmoothLayerGateOpen ? false).asString).postln;
+                        ~swSmoothBranchDebugAt = Main.elapsedTime;
+                    };
 
                     if ((params[\smoothExperiment] ? \triggeredNotes) == \triggeredNotes) {
                         ~swSmoothMaybeTrigger.(params);
@@ -7244,6 +8456,12 @@ s.waitForBoot {
                 ~swApplyLiveModeCurrent.();
             };
         };
+        };
+        if (~swLiveInputValid) {
+            ~swStandPromptUpdate.(params, gate, activity.max(spinNorm), pitchNorm);
+        } {
+            ~swExpireLiveInput.();
+        };
     }, '/spacewizard/auduino');
 
     OSCdef(\swSmoothDemoControl, { |msg|
@@ -7260,6 +8478,15 @@ s.waitForBoot {
         var yawShape = yawCentered.abs;
         var tone;
 
+        if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swSmoothDemoOscDebugAt ? 0.0)) > 0.5 }) {
+            ("Smooth demo OSC recv gate=" ++ gate.round(0.001).asString
+                ++ " activity=" ++ activity.round(0.001).asString
+                ++ " pitch=" ++ pitchNorm.round(0.001).asString
+                ++ " roll=" ++ rollNorm.round(0.001).asString
+                ++ " spin=" ++ spinNorm.round(0.001).asString).postln;
+            ~swSmoothDemoOscDebugAt = Main.elapsedTime;
+        };
+
         ~swUpdateLiveInputState.(gate, activity, pitchNorm, rollNorm, spinNorm, yawNorm);
 
         if ((params[\voiceMode] ? \auduino) != \smoothSine) {
@@ -7270,13 +8497,14 @@ s.waitForBoot {
         };
 
         ~swSetMotionGate.(gate > 0.0);
+        if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swSmoothDemoEarlyDebugAt ? 0.0)) > 0.5 }) {
+            ("Smooth demo after motion gate gate=" ++ gate.round(0.001).asString).postln;
+        };
         params[\smoothPitchNorm] = pitchNorm;
         params[\smoothExperiment] = params[\smoothExperiment] ? \triggeredNotes;
         ~swAuduinoParams = params;
 
         if (gate > 0.0) {
-            params[\smoothPitchSmoothing] = activity.linlin(0.0, 1.0, 0.30, 0.55);
-            params[\smoothIndexHysteresis] = 0.22;
             params[\smoothMidi] = ~swSmoothMidiForPitch.(pitchNorm, params[\smoothRootMidi] ? 38);
             params[\smoothFreq] = (params[\smoothMidi] ? 43).midicps;
             params[\smoothVibratoRate] = spinNorm.linexp(0.0, 1.0, 0.05, 1.9) * yawNorm.linexp(0.0, 1.0, 0.88, 1.42);
@@ -7285,13 +8513,17 @@ s.waitForBoot {
             params[\smoothBloom] = rollShape.linlin(0.0, 1.0, 0.07, 0.18) + (yawShape * 0.08);
             params[\smoothLp] = rollNorm.linexp(-1.0, 1.0, 480.0, 2600.0);
             tone = ~swSmoothRollToneFor.(params, rollShape);
+            if ((~swLiveOscDebugEnabled ? false) and: { (Main.elapsedTime - (~swSmoothDemoEarlyDebugAt ? 0.0)) > 0.5 }) {
+                ("Smooth demo after roll tone crunch=" ++ (tone[\crunch] ? 0.0).round(0.001).asString
+                    ++ " reverb=" ++ (tone[\reverb] ? 0.0).round(0.001).asString).postln;
+                ~swSmoothDemoEarlyDebugAt = Main.elapsedTime;
+            };
             params[\smoothCrunch] = tone[\crunch];
             params[\smoothReverb] = tone[\reverb];
             params[\smoothHold] = activity.linlin(0.0, 1.0, 0.04, 0.11) + (yawShape * 0.025);
-            params[\smoothDecay] = activity.linlin(0.0, 1.0, 1.7, 3.2) + yawNorm.linlin(0.0, 1.0, -0.1, 1.0);
-            params[\smoothMinInterval] = activity.linlin(0.0, 1.0, 0.04, 0.025);
+            params[\smoothDecay] = ~swSmoothLiveDecayFor.(params, activity, yawNorm);
             params[\pan] = (((rollNorm * 0.72) + (yawCentered * 0.28)).clip(-1.0, 1.0)).linlin(-1.0, 1.0, -0.26, 0.26);
-            params[\amp] = activity.linlin(0.0, 1.0, 0.05, 0.13);
+            params[\amp] = ~swSmoothLiveAmpFor.(params, activity);
 
             if (params[\smoothChoirSolo] ? false) {
                 ~swSmoothStop.();
@@ -7299,10 +8531,25 @@ s.waitForBoot {
                 ~swSmoothChoirApplyMotion.(params, pitchNorm, rollNorm, yawNorm, gate);
                 ~swAuduinoParams = params;
             } {
+                if ((Main.elapsedTime - (~swSmoothDemoStepDebugAt ? 0.0)) > 0.5) {
+                    ("Smooth demo before ambient midi=" ++ (params[\smoothMidi] ? 43).asString
+                        ++ " experiment=" ++ (params[\smoothExperiment] ? \nil).asString).postln;
+                };
                 params = ~swSmoothAmbientApplyMotion.(params, activity, pitchNorm, rollNorm, spinNorm, yawNorm, gate);
+                if ((Main.elapsedTime - (~swSmoothDemoStepDebugAt ? 0.0)) > 0.5) {
+                    ("Smooth demo after ambient paramsNil=" ++ params.isNil.asString
+                        ++ " experiment=" ++ ((params ? ())[\smoothExperiment] ? \nil).asString).postln;
+                };
                 ~swSmoothChoirApplyMotion.(params, pitchNorm, rollNorm, yawNorm, gate);
+                if ((Main.elapsedTime - (~swSmoothDemoStepDebugAt ? 0.0)) > 0.5) {
+                    "Smooth demo after choir".postln;
+                };
                 ~swAuduinoParams = params;
                 ~swSmoothApplyActiveTone.(params);
+                if ((Main.elapsedTime - (~swSmoothDemoStepDebugAt ? 0.0)) > 0.5) {
+                    ("Smooth demo before note branch experiment=" ++ (params[\smoothExperiment] ? \nil).asString).postln;
+                    ~swSmoothDemoStepDebugAt = Main.elapsedTime;
+                };
 
                 if ((params[\smoothExperiment] ? \triggeredNotes) == \triggeredNotes) {
                     ("SpaceWizard smooth demo note midi=" ++ (params[\smoothMidi] ? 43).asString).postln;
@@ -7327,7 +8574,11 @@ s.waitForBoot {
         if (didArm) {
             "SpaceWizard smooth demo mode armed.".postln;
         };
+        ~swStandPromptUpdate.(params, gate, activity.max(spinNorm), pitchNorm);
     }, '/spacewizard/smooth_demo');
+
+
+    ~swStartLiveWatchdog.();
 
     "SpaceWizard synth loaded.".postln;
     "OSC listening on SuperCollider language port: ".post; NetAddr.langPort.postln;

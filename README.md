@@ -107,7 +107,58 @@ You can still pass the existing live-mode options through the same wrapper:
 ./spacewizard_live.sh start --mode ambient-flow
 ./spacewizard_live.sh start --mode ambient-flow --ambient-variant forest
 ./spacewizard_live.sh start --mode wow-voice
+./spacewizard_live.sh start --mode smooth-sine --smooth-preset quiet-pentatonic
+./spacewizard_live.sh start --mode smooth-sine --smooth-preset pi-quiet-pentatonic
+./spacewizard_live.sh start --mode day-o
 ```
+
+Use `quiet-pentatonic` for the earlier triggered-note prototype preset. Use
+`pi-quiet-pentatonic` for the Raspberry Pi installation preset with the
+single-voice quiet synth and upright stand prompt.
+
+`day-o` plays the recording in `maestro-osc-version/samples/song` from the cue
+point set in the `song` preset of `maestro-osc-version/sound_presets.scd` when
+the candle is moved deliberately. Its speed, pitch and volume follow how much the
+candle is moving: held still, the song winds down like a record slowing to a stop
+over about 3 seconds, and moving it again before then brings it back up to speed.
+The motion side is `song_gate` in `maestro-osc-version/config.json`. Audio files in
+that folder are kept out of git.
+
+### Raspberry Pi Production Boot
+
+The Pi production service starts the full rig on boot: SuperCollider synth,
+the serial receiver bridge, Maestro lighting OSC, and the Pi smooth-sine preset.
+
+On the Pi, from `/home/sbialek/Spacewizard-sound`, install and enable it with:
+
+```bash
+./scripts/install_spacewizard_pi_service.sh
+```
+
+Then start or inspect it with:
+
+```bash
+systemctl --user start spacewizard-production.service
+systemctl --user status spacewizard-production.service
+journalctl --user -u spacewizard-production.service -f
+```
+
+The service runs:
+
+```bash
+./spacewizard_live.sh start --mode smooth-sine --smooth-preset pi-quiet-pentatonic --port /dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0 --maestro-host 192.168.37.1 --maestro-port 7672
+```
+
+To switch the Pi to another mode, which persists across reboots, run on the Pi:
+
+```bash
+./scripts/set_spacewizard_mode.sh day-o
+./scripts/set_spacewizard_mode.sh smooth-sine
+```
+
+The installer enables user linger so the service can start at boot before an
+SSH login. The production unit lives at
+`systemd/user/spacewizard-production.service`.
 
 ### One-Command Demo Mode
 

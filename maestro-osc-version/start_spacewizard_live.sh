@@ -5,7 +5,22 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 PYTHON_BIN=${PYTHON_BIN:-"$REPO_ROOT/.venv/bin/python"}
-SCLANG_BIN=${SCLANG_BIN:-"/Applications/SuperCollider.app/Contents/MacOS/sclang"}
+if [[ -z "${SCLANG_BIN:-}" ]]; then
+    if [[ -x "/Applications/SuperCollider.app/Contents/MacOS/sclang" ]]; then
+        SCLANG_BIN="/Applications/SuperCollider.app/Contents/MacOS/sclang"
+    else
+        SCLANG_BIN=$(command -v sclang || true)
+    fi
+fi
+if [[ -z "${SESSION_SHELL:-}" ]]; then
+    SESSION_SHELL=$(command -v bash || command -v sh || true)
+fi
+if [[ -z "${QT_QPA_PLATFORM:-}" ]] && [[ "$(uname -s)" != "Darwin" ]] && [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    export QT_QPA_PLATFORM=offscreen
+fi
+if [[ -z "${SCLANG_WRAPPER:-}" ]] && [[ "$(uname -s)" != "Darwin" ]] && command -v pw-jack >/dev/null 2>&1; then
+    SCLANG_WRAPPER=$(command -v pw-jack)
+fi
 SYNTH_FILE="$SCRIPT_DIR/synth/SpaceWizardSynth.scd"
 BRIDGE_SCRIPT="$SCRIPT_DIR/run_osc_bridge.py"
 SOUND_PRESET_CONFIG_FILE=${SOUND_PRESET_CONFIG_FILE:-"$SCRIPT_DIR/sound_presets.scd"}
@@ -14,10 +29,14 @@ LOG_DIR="$RUNTIME_DIR/logs"
 BOOT_FILE="$RUNTIME_DIR/spacewizard_boot.scd"
 CHOIR_SAMPLE_DIR="$SCRIPT_DIR/samples/choir"
 CHOIR_ASSET_SAMPLE_DIR="$REPO_ROOT/assets"
+VOICE_SAMPLE_DIR="$SCRIPT_DIR/samples/voice"
+SONG_SAMPLE_DIR="$SCRIPT_DIR/samples/song"
 SCLANG_LOG="$LOG_DIR/sclang.log"
 BRIDGE_LOG="$LOG_DIR/bridge.log"
 SCLANG_PID_FILE="$RUNTIME_DIR/sclang.pid"
 BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
+SCLANG_SCREEN_NAME="spacewizard-sclang"
+BRIDGE_SCREEN_NAME="spacewizard-bridge"
 DEFAULT_FALLBACK_OUTPUT_DEVICE="MacBook Pro Speakers"
 
 VERBOSE_TEST=0
@@ -29,6 +48,9 @@ AMBIENT_VARIANT="flow"
 OUTPUT_DEVICE_OVERRIDE=""
 STATUS_GUI=0
 SMOOTH_MIX_GUI=0
+BRIDGE_TEST_MODE=1
+MAESTRO_HOST=""
+MAESTRO_PORT=""
 
 usage() {
         cat <<EOF
@@ -39,11 +61,15 @@ Python OSC bridge, then auto-detecting the receiver serial port.
 
 Options:
     --port PORT            Use a specific receiver serial port
-    --mode MODE            Live synth mode: auduino, ambient-flow, smooth-sine, reese-bass, or wow-voice
-    --smooth-preset NAME   Smooth-sine preset: standard or quiet-pentatonic
+    --mode MODE            Live synth mode: auduino, ambient-flow, smooth-sine, reese-bass, wow-voice, or day-o
+                                                 (day-o plays samples/song from its cue point on pickup)
+    --smooth-preset NAME   Smooth-sine preset: standard, quiet-pentatonic, or pi-quiet-pentatonic
     --ambient-variant NAME Ambient variant anchor for ambient-flow mode: flow, chordal, drone, or forest
                                                  Yaw then blends smoothly around the ambient variant ring from that starting point.
     --output-device NAME   Force a specific SuperCollider output device
+    --maestro-host HOST    Send lighting OSC to MaestroDMX at HOST instead of bridge test mode
+    --maestro-port PORT    MaestroDMX OSC UDP port for --maestro-host (default: 7672)
+    --bridge-test          Keep bridge in test mode with synth OSC only (default unless --maestro-host is used)
     --status-gui           Open the live status GUI with current inputs and synth parameters
     --smooth-mix-gui       Open the smooth-sine mix GUI for pentatonic/ambient balance
     --verbose-test         Pass --verbose-test to the bridge
@@ -94,6 +120,31 @@ kill_matching() {
     fi
 }
 
+stop_screen_session() {
+    local screen_name="$1"
+    local label="$2"
+
+    if ! command -v screen >/dev/null 2>&1; then
+        return
+    fi
+
+    if screen -ls | grep -q "[.]$screen_name[[:space:]]"; then
+        log "Stopping $label screen session"
+        screen -S "$screen_name" -X quit >/dev/null 2>&1 || true
+    fi
+}
+
+wait_for_pid_file() {
+    local pid_file="$1"
+
+    for _ in {1..50}; do
+        [[ -s "$pid_file" ]] && return 0
+        sleep 0.1
+    done
+
+    return 1
+}
+
 wait_for_exit() {
     local pattern="$1"
     local timeout_seconds="$2"
@@ -125,7 +176,11 @@ PY
 stop_existing_processes() {
     mkdir -p "$LOG_DIR"
 
+    # Give the bridge time to deliver its final off commands before screen exits.
     stop_pid_file "$BRIDGE_PID_FILE" "bridge"
+    wait_for_exit "$BRIDGE_SCRIPT" 3 || true
+    stop_screen_session "$BRIDGE_SCREEN_NAME" "bridge"
+    stop_screen_session "$SCLANG_SCREEN_NAME" "SuperCollider"
     stop_pid_file "$SCLANG_PID_FILE" "SuperCollider"
 
     kill_matching "$BRIDGE_SCRIPT" "bridge"
@@ -221,6 +276,10 @@ detect_output_device() {
         return 0
     fi
 
+    if ! command -v system_profiler >/dev/null 2>&1; then
+        return 0
+    fi
+
     local audio_report
     audio_report=$(system_profiler SPAudioDataType 2>/dev/null || true)
 
@@ -273,12 +332,18 @@ PY
 write_boot_file() {
     local sc_mode="\\auduino"
     local output_device="$1"
+    local output_device_line=""
     local ambient_variant_symbol="nil"
     local ambient_yaw_blend="false"
     local ambient_yaw_offset="0.0"
     local smooth_preset_symbol="nil"
+    local song_preset_symbol="nil"
     local status_gui="false"
     local smooth_mix_gui="false"
+
+    if [[ -n "$output_device" ]]; then
+        output_device_line="s.options.outDevice_(\"$output_device\");"
+    fi
 
     if [[ "$SYNTH_MODE" == "ambient-flow" ]]; then
         sc_mode="\\ambientFlow"
@@ -292,11 +357,17 @@ write_boot_file() {
             quiet-pentatonic)
                 smooth_preset_symbol="\\quietPentatonic"
                 ;;
+            pi-quiet-pentatonic)
+                smooth_preset_symbol="\\piQuietPentatonic"
+                ;;
         esac
     elif [[ "$SYNTH_MODE" == "reese-bass" ]]; then
         sc_mode="\\reeseBass"
     elif [[ "$SYNTH_MODE" == "wow-voice" ]]; then
         sc_mode="\\wowVoice"
+    elif [[ "$SYNTH_MODE" == "day-o" ]]; then
+        sc_mode="\\song"
+        song_preset_symbol="\\dayO"
     fi
 
     if [[ "$SYNTH_MODE" == "ambient-flow" ]]; then
@@ -333,14 +404,18 @@ write_boot_file() {
 ~swRequestedAmbientYawBlend = $ambient_yaw_blend;
 ~swRequestedAmbientYawOffset = $ambient_yaw_offset;
 ~swRequestedSmoothPreset = $smooth_preset_symbol;
+~swRequestedSongPreset = $song_preset_symbol;
 ~swRequestedStatusGUI = $status_gui;
 ~swRequestedSmoothMixGUI = $smooth_mix_gui;
 ~swChoirSampleDir = "$CHOIR_SAMPLE_DIR";
 ~swChoirAssetSampleDir = "$CHOIR_ASSET_SAMPLE_DIR";
+~swStandPromptSampleDir = "$VOICE_SAMPLE_DIR";
+~swSongSampleDir = "$SONG_SAMPLE_DIR";
 ~swSoundPresetConfigFile = "$SOUND_PRESET_CONFIG_FILE";
+~swHealthFile = "$RUNTIME_DIR/synth.health";
 s.options.numInputBusChannels_(0);
 s.options.memSize_(262144);
-s.options.outDevice_("$output_device");
+$output_device_line
 thisProcess.interpreter.executeFile("$SYNTH_FILE");
 s.waitForBoot {
     AppClock.sched(0.25, {
@@ -408,11 +483,31 @@ PY
 }
 
 start_supercollider() {
+    local -a sclang_args
+
     : > "$SCLANG_LOG"
+    rm -f "$RUNTIME_DIR/synth.health"
+    rm -f "$SCLANG_PID_FILE"
     log "Starting SuperCollider"
-    nohup "$SCLANG_BIN" -D "$BOOT_FILE" > "$SCLANG_LOG" 2>&1 &
-    local pid=$!
-    printf '%s\n' "$pid" > "$SCLANG_PID_FILE"
+    if [[ -n "${SCLANG_WRAPPER:-}" ]]; then
+        sclang_args=("$SCLANG_WRAPPER" "$SCLANG_BIN" "-D" "-r" "$BOOT_FILE")
+    else
+        sclang_args=("$SCLANG_BIN" "-D" "-r" "$BOOT_FILE")
+    fi
+
+    if command -v screen >/dev/null 2>&1; then
+        screen -dmS "$SCLANG_SCREEN_NAME" "$SESSION_SHELL" -lc 'pid_file=$1; log_file=$2; shift 2; printf "%s\n" "$$" > "$pid_file"; exec "$@" > "$log_file" 2>&1' _ "$SCLANG_PID_FILE" "$SCLANG_LOG" "${sclang_args[@]}"
+    else
+        nohup "$SESSION_SHELL" -lc 'pid_file=$1; log_file=$2; shift 2; printf "%s\n" "$$" > "$pid_file"; exec "$@" > "$log_file" 2>&1' _ "$SCLANG_PID_FILE" "$SCLANG_LOG" "${sclang_args[@]}" >/dev/null 2>&1 &
+    fi
+
+    if ! wait_for_pid_file "$SCLANG_PID_FILE"; then
+        printf 'SuperCollider failed to start managed session.\n' >&2
+        exit 1
+    fi
+
+    local pid
+    pid=$(<"$SCLANG_PID_FILE")
 
     if ! wait_for_log_text "$SCLANG_LOG" "SpaceWizard synth loaded." 25 "$pid"; then
         printf 'SuperCollider failed to boot cleanly. Recent log output:\n' >&2
@@ -428,17 +523,36 @@ start_bridge() {
     local -a bridge_args
 
     : > "$BRIDGE_LOG"
-    bridge_args=("$PYTHON_BIN" "-u" "$BRIDGE_SCRIPT" "$port" "--test" "--synth")
+    rm -f "$RUNTIME_DIR/bridge.health"
+    rm -f "$BRIDGE_PID_FILE"
+    bridge_args=("$PYTHON_BIN" "-u" "$BRIDGE_SCRIPT" "$port")
+    if [[ "$BRIDGE_TEST_MODE" -eq 1 ]]; then
+        bridge_args+=("--test")
+    else
+        bridge_args+=("${MAESTRO_HOST}" "${MAESTRO_PORT:-7672}")
+    fi
+    bridge_args+=("--synth")
+    bridge_args+=("--health-file" "$RUNTIME_DIR/bridge.health")
     if [[ "$VERBOSE_TEST" -eq 1 ]]; then
         bridge_args+=("--verbose-test")
     fi
 
     log "Starting bridge on $port"
-    nohup "${bridge_args[@]}" > "$BRIDGE_LOG" 2>&1 &
-    local pid=$!
-    printf '%s\n' "$pid" > "$BRIDGE_PID_FILE"
+    if command -v screen >/dev/null 2>&1; then
+        screen -dmS "$BRIDGE_SCREEN_NAME" "$SESSION_SHELL" -lc 'pid_file=$1; log_file=$2; shift 2; printf "%s\n" "$$" > "$pid_file"; exec "$@" > "$log_file" 2>&1' _ "$BRIDGE_PID_FILE" "$BRIDGE_LOG" "${bridge_args[@]}"
+    else
+        nohup "$SESSION_SHELL" -lc 'pid_file=$1; log_file=$2; shift 2; printf "%s\n" "$$" > "$pid_file"; exec "$@" > "$log_file" 2>&1' _ "$BRIDGE_PID_FILE" "$BRIDGE_LOG" "${bridge_args[@]}" >/dev/null 2>&1 &
+    fi
 
-    if ! wait_for_log_text "$BRIDGE_LOG" "Connected to SuperCollider synth" 15 "$pid"; then
+    if ! wait_for_pid_file "$BRIDGE_PID_FILE"; then
+        printf 'Bridge failed to start managed session.\n' >&2
+        exit 1
+    fi
+
+    local pid
+    pid=$(<"$BRIDGE_PID_FILE")
+
+    if ! wait_for_log_text "$BRIDGE_LOG" "Bridge ready; waiting for valid sensor data" 15 "$pid"; then
         printf 'Bridge failed to start cleanly. Recent log output:\n' >&2
         tail -n 60 "$BRIDGE_LOG" >&2 || true
         exit 1
@@ -457,12 +571,12 @@ while [[ $# -gt 0 ]]; do
         --mode)
             [[ $# -ge 2 ]] || { usage >&2; exit 1; }
             case "$2" in
-                auduino|ambient-flow|smooth-sine|reese-bass|wow-voice)
+                auduino|ambient-flow|smooth-sine|reese-bass|wow-voice|day-o)
                     SYNTH_MODE="$2"
                     ;;
                 *)
                     printf 'Unsupported synth mode: %s\n' "$2" >&2
-                    printf 'Supported modes: auduino, ambient-flow, smooth-sine, reese-bass, wow-voice\n' >&2
+                    printf 'Supported modes: auduino, ambient-flow, smooth-sine, reese-bass, wow-voice, day-o\n' >&2
                     exit 1
                     ;;
             esac
@@ -471,12 +585,12 @@ while [[ $# -gt 0 ]]; do
         --smooth-preset)
             [[ $# -ge 2 ]] || { usage >&2; exit 1; }
             case "$2" in
-                standard|quiet-pentatonic)
+                standard|quiet-pentatonic|pi-quiet-pentatonic)
                     SMOOTH_PRESET="$2"
                     ;;
                 *)
                     printf 'Unsupported smooth preset: %s\n' "$2" >&2
-                    printf 'Supported smooth presets: standard, quiet-pentatonic\n' >&2
+                    printf 'Supported smooth presets: standard, quiet-pentatonic, pi-quiet-pentatonic\n' >&2
                     exit 1
                     ;;
             esac
@@ -500,6 +614,23 @@ while [[ $# -gt 0 ]]; do
             [[ $# -ge 2 ]] || { usage >&2; exit 1; }
             OUTPUT_DEVICE_OVERRIDE="$2"
             shift 2
+            ;;
+        --maestro-host)
+            [[ $# -ge 2 ]] || { usage >&2; exit 1; }
+            MAESTRO_HOST="$2"
+            BRIDGE_TEST_MODE=0
+            shift 2
+            ;;
+        --maestro-port)
+            [[ $# -ge 2 ]] || { usage >&2; exit 1; }
+            MAESTRO_PORT="$2"
+            shift 2
+            ;;
+        --bridge-test)
+            BRIDGE_TEST_MODE=1
+            MAESTRO_HOST=""
+            MAESTRO_PORT=""
+            shift
             ;;
         --status-gui)
             STATUS_GUI=1
@@ -531,6 +662,7 @@ done
 
 require_file "$PYTHON_BIN" "Python interpreter"
 require_file "$SCLANG_BIN" "SuperCollider language executable"
+require_file "$SESSION_SHELL" "session shell"
 require_file "$SYNTH_FILE" "SpaceWizard synth patch"
 require_file "$BRIDGE_SCRIPT" "OSC bridge script"
 

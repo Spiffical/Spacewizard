@@ -17,28 +17,44 @@
   },
   "interaction_mode": {
     "enabled": true,
-    "accel_on_g": 0.035,
-    "accel_off_g": 0.02,
-    "gyro_on_dps": 6.0,
-    "gyro_off_dps": 2.2,
-    "start_hold_ms": 25,
-    "rest_hold_ms": 3000,
+    "accel_on_g": 0.01,
+    "accel_off_g": 0.006,
+    "gyro_on_dps": 1.1,
+    "gyro_off_dps": 0.8,
+    "start_hold_ms": 10,
+    "rest_hold_ms": 0,
     "stable_rest_enabled": true,
-    "stable_accel_delta_g": 0.006,
-    "stable_hold_ms": 1800,
-    "stable_gyro_max_dps": 2.2,
+    "stable_accel_delta_g": 0.002,
+    "stable_gyro_delta_dps": 0.15,
+    "stable_hold_ms": 2000,
+    "stable_gyro_max_dps": 0.7,
+    "movement_start_accel_delta_g": 0.012,
+    "movement_start_gyro_delta_dps": 0.45,
     "baseline_alpha": 0.03,
     "baseline_update_gyro_max_dps": 2.5,
     "active_brightness": 1.0,
     "rest_brightness": 0.0,
-    "description": "Turns lights on when object is picked up/moving, and off after it settles."
+    "description": "Turns lights/sound on when object is picked up/moving. Once active, fade-out is allowed only after the full accelerometer and gyro vectors stay nearly unchanged for stable_hold_ms."
+  },
+  "song_gate": {
+    "gyro_on_dps": 2.5,
+    "accel_on_g": 0.06,
+    "gyro_still_dps": 0.9,
+    "gyro_full_dps": 1.8,
+    "accel_still_g": 0.03,
+    "accel_full_g": 0.07,
+    "smoothing_seconds": 0.25,
+    "start_hold_ms": 50,
+    "wind_down_seconds": 3.0,
+    "recover_seconds": 0.5,
+    "description": "Song mode (--mode day-o) motion energy, 0 to 1. Deliberate movement (smoothed rotation >= gyro_on_dps or acceleration >= accel_on_g) starts the song at full energy. The energy then tracks how much the candle moves: at or below the *_still values it falls linearly to zero over wind_down_seconds, at or above the *_full values it recovers toward full with a recover_seconds time constant. The synth maps energy to playback speed, pitch and volume, and the song stops when the energy reaches zero. Bridge units as in interaction_mode; recorded hand-held holds stay below about 0.85 smoothed rotation."
   },
   "maestro_settings": {
     "default_host": "192.168.37.1",
     "default_port": 7672,
     "alternative_hosts": {
-      "ethernet": "10.0.0.200",
-      "wifi": "10.0.0.200"
+      "maestro_gateway": "192.168.37.1",
+      "legacy_static": "10.0.0.200"
     },
     "connection_timeout": 5.0,
     "retry_attempts": 3
@@ -47,7 +63,8 @@
     "enabled": false,
     "host": "127.0.0.1",
     "port": 57120,
-    "status_rate_hz": 50,
+    "control_rate_hz": 30,
+    "status_rate_hz": 5,
     "description": "Optional secondary OSC output for the local SuperCollider synth patch",
     "tilt_mapping": {
       "mode": "calibrated_gravity",
@@ -87,11 +104,12 @@
     }
   },
   "data_processing": {
+    "input_timeout_seconds": 0.5,
     "smoothing_factor": 0.1,
     "deadzone_threshold": 0.05,
-    "output_rate_hz": 40,
+    "output_rate_hz": 30,
     "test_display_rate_hz": 8,
-    "enable_debug_output": true
+    "enable_debug_output": false
   },
   "hardware_compatibility": {
     "mpu6050_requirements": {

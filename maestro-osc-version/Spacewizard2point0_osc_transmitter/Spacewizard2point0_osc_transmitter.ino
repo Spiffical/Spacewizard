@@ -9,14 +9,13 @@
  * - Arduino Nano/UNO
  * - MPU6050 6-axis motion sensor
  * - nRF24L01 radio transceiver
- * - Push button for mode switching
  *
  * Transmits raw sensor data for OSC processing:
  * - Raw accelerometer values (16-bit signed integers)
  * - Raw gyroscope values (16-bit signed integers)
  * - Orientation angles (degrees)
  * - Impact detection flag
- * - Button state
+ * - Sample sequence and freshness flag
  */
 
 #include <SPI.h>
@@ -44,13 +43,13 @@
 #define RADIO_CE_PIN        9
 #define RADIO_CS_PIN        10
 #define RADIO_TIMEOUT_MS    3000
-#define RADIO_PAYLOAD_SIZE  32  // Increased for more data
+#define RADIO_PAYLOAD_SIZE  32  // Maximum nRF24 payload, including freshness metadata
 
 // Communication pipes (addresses for radio communication)
 const uint64_t RADIO_PIPES[3] = {
   0xE8E8F0F0E1LL,  // Primary communication pipe
-  0xEEFDFAF50DFLL,  // Secondary pipe
-  0xEEFDFAF50E2LL   // Tertiary pipe
+  0xE8E8F0F0DFLL,  // Same prefix required by receiver pipes 2-5
+  0xE8E8F0F0E2LL
 };
 
 // Note: No button configuration needed for OSC version
@@ -72,7 +71,15 @@ const uint64_t RADIO_PIPES[3] = {
 
 // Radio communication
 RF24 radio(RADIO_CE_PIN, RADIO_CS_PIN);
-int16_t transmitData[14];  // [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, qW, qX, qY, qZ, impact]
+int16_t transmitData[16];  // Original 14 fields + sample sequence + 0x5700|valid
+uint16_t sampleSequence = 0;
+bool sensorHasSample = false;
+bool radioReady = false;
+unsigned long lastSampleMs = 0;
+unsigned long lastSensorAttemptMs = 0;
+unsigned long lastRadioAttemptMs = 0;
+unsigned long lastRadioSuccessMs = 0;
+unsigned long lastTransmitMs = 0;
 
 // Note: No button state management needed for OSC version
 
@@ -162,8 +169,13 @@ void initializeSerial() {
  * Initialize the MPU6050 sensor and DMP (Digital Motion Processor).
  */
 void initializeMPU6050() {
+    mpuInitialized = false;
+    sensorHasSample = false;
+    lastSensorAttemptMs = millis();
     // Initialize I2C communication
     Wire.begin();
+    Wire.setWireTimeout(25000, true);
+    Wire.clearWireTimeoutFlag();
     TWBR = 12;  // Set 400kHz I2C speed for 16MHz CPU
 
     // Initialize MPU6050
@@ -205,14 +217,16 @@ void initializeMPU6050() {
  * Initialize the nRF24L01 radio module for wireless communication.
  */
 void initializeRadio() {
-    radio.begin();
+    lastRadioAttemptMs = millis();
+    radioReady = radio.begin();
+    if (!radioReady) return;
 
     // Configure radio settings for optimal performance
     radio.enableDynamicPayloads();
     radio.setPayloadSize(RADIO_PAYLOAD_SIZE);
     radio.setDataRate(RF24_250KBPS);  // Lower data rate for better range
-    radio.setAutoAck(false);          // Disable auto-acknowledgment for simplicity
-    radio.setRetries(2, 15);          // Set retransmission parameters
+    radio.setAutoAck(true);          // write() must reflect receiver acknowledgement
+    radio.setRetries(2, 5);          // Bounded retry time leaves room for sensor reads
     radio.setCRCLength(RF24_CRC_16);  // Use 16-bit CRC for error checking
 
     // Open primary communication pipe
@@ -232,7 +246,25 @@ void initializeRadio() {
  */
 void loop() {
     processMPU6050Data();
-    transmitMotionData();
+    unsigned long now = millis();
+    if (Wire.getWireTimeoutFlag()) {
+        Wire.clearWireTimeoutFlag();
+        mpuInitialized = false;
+        sensorHasSample = false;
+    }
+    if ((!mpuInitialized || (now - lastSampleMs > 1000)) &&
+        now - lastSensorAttemptMs >= 2000) {
+        initializeMPU6050();
+    }
+    now = millis();
+    if ((!radioReady || now - lastRadioSuccessMs >= RADIO_TIMEOUT_MS) &&
+        now - lastRadioAttemptMs >= RADIO_TIMEOUT_MS) {
+        initializeRadio();
+    }
+    if (radioReady && now - lastTransmitMs >= 10) {
+        lastTransmitMs = now;
+        transmitMotionData();
+    }
 }
 
 // Note: No button handling needed for OSC version
@@ -249,16 +281,20 @@ void processMPU6050Data() {
     fifoByteCount = mpu.getFIFOCount();
 
     // Handle FIFO overflow
-    if ((mpuInterruptStatus & 0x10) || fifoByteCount == 1024) {
+    if ((mpuInterruptStatus & 0x10) || fifoByteCount >= 1024) {
         mpu.resetFIFO();
         DEBUG_PRINTLN("MPU6050 FIFO overflow - reset");
     }
     // Process available data packets
-    else if (mpuInterruptStatus & 0x02) {
+    else if (dmpPacketSize > 0 && dmpPacketSize <= sizeof(fifoBuffer) && fifoByteCount >= dmpPacketSize) {
         // Read all available packets from FIFO
-        while (mpu.getFIFOCount() > dmpPacketSize) {
+        uint8_t packetsRead = 0;
+        while (fifoByteCount >= dmpPacketSize && packetsRead < 8) {
             mpu.getFIFOBytes(fifoBuffer, dmpPacketSize);
+            packetsRead++;
+            fifoByteCount = mpu.getFIFOCount();
         }
+        if (Wire.getWireTimeoutFlag() || packetsRead == 0) return;
 
         // Process the latest motion data
         mpu.dmpGetQuaternion(&quaternion, fifoBuffer);
@@ -274,6 +310,7 @@ void processMPU6050Data() {
 
         // Get raw gyroscope data
         mpu.getRotation(&rawGyroX, &rawGyroY, &rawGyroZ);
+        if (Wire.getWireTimeoutFlag()) return;
 
         // Convert orientation angles to degrees
         yawAngle = yawPitchRoll[0] * 180 / M_PI;
@@ -287,6 +324,9 @@ void processMPU6050Data() {
                                   pow(realAcceleration.y, 2) +
                                   pow(realAcceleration.z, 2));
         impactDetected = (accelMagnitude > 2000);  // Threshold for impact detection
+        sampleSequence++;
+        lastSampleMs = millis();
+        sensorHasSample = true;
     }
 }
 
@@ -310,12 +350,13 @@ void transmitMotionData() {
     transmitData[11] = scaleQuaternionComponent(quaternion.y);
     transmitData[12] = scaleQuaternionComponent(quaternion.z);
     transmitData[13] = impactDetected ? 1 : 0; // Impact detection flag
+    transmitData[14] = (int16_t)sampleSequence;
+    transmitData[15] = 0x5700 | ((mpuInitialized && sensorHasSample &&
+        millis() - lastSampleMs < 250) ? 1 : 0);
 
-    // Try the primary pipe first and only fall back if that write fails.
-    bool sent = false;
-    for (uint8_t pipeIndex = 0; pipeIndex < 3 && !sent; pipeIndex++) {
-        radio.openWritingPipe(RADIO_PIPES[pipeIndex]);
-        sent = radio.write(transmitData, sizeof(transmitData));
+    // A single acknowledged link; retry/reinitialize on sustained failure.
+    if (radio.write(transmitData, sizeof(transmitData))) {
+        lastRadioSuccessMs = millis();
     }
 
     // Debug output

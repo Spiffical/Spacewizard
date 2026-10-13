@@ -4,28 +4,30 @@ from __future__ import annotations
 
 import argparse
 import os
+from pathlib import Path
+import signal
+import threading
 import time
 from typing import Any
 
 import serial
-from pythonosc.udp_client import SimpleUDPClient
 
 from .config import load_config
 from .constants import (
-    DEFAULT_BAUD_RATE,
     DEFAULT_MAESTRO_HOST,
     DEFAULT_MAESTRO_PORT,
-    SERIAL_TIMEOUT,
 )
 from .display import display_compact_test_data, display_impact_test_data, display_test_data
 from .metrics import ImpactState, calculate_motion_metrics, get_current_time_ms
 from .osc import (
     send_osc_messages,
+    send_safe_state,
     send_synth_control_messages,
     send_synth_impact_messages,
     send_synth_status_messages,
 )
-from .serial_input import find_arduino_port, parse_serial_line
+from .serial_input import parse_serial_line
+from .reliability import InputFreshness, RecoveringOSCClient, RecoveringSerial
 
 
 def _read_latest_serial_line(serial_port: serial.Serial) -> str:
@@ -47,11 +49,15 @@ def _read_latest_serial_line(serial_port: serial.Serial) -> str:
         else:
             pending_bytes = line
 
-    setattr(serial_port, "_spacewizard_pending_bytes", pending_bytes)
+    # A damaged stream without delimiters must not grow memory without bound.
+    setattr(serial_port, "_spacewizard_pending_bytes", pending_bytes[-512:])
     if not latest_line:
         return ""
 
-    return latest_line.decode("utf-8", errors="ignore").strip()
+    try:
+        return latest_line.decode("ascii").strip()
+    except UnicodeDecodeError:
+        return ""
 
 
 def _build_arg_parser() -> argparse.ArgumentParser:
@@ -85,6 +91,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("-p", "--session-plot", action="store_true", help="Save impact-session plot PNG")
     parser.add_argument("--live-plot", action="store_true", help="Show live interactive plot")
+    parser.add_argument("--health-file", help="Optional supervisor heartbeat file")
     parser.add_argument(
         "--synth",
         action="store_true",
@@ -347,7 +354,7 @@ def main(argv: list[str] | None = None) -> int:
         print("🎯 IMPACT TEST MODE: Detailed impact detection analysis")
         print()
 
-    serial_port_path = args.serial_port or find_arduino_port()
+    serial_port_path = args.serial_port
     if test_mode:
         maestro_host = "test-mode"
         maestro_port = 0
@@ -366,20 +373,21 @@ def main(argv: list[str] | None = None) -> int:
     synth_enabled = bool(args.synth or synth_cfg.get("enabled", False))
     synth_host = args.synth_host or synth_cfg.get("host", "127.0.0.1")
     synth_port = args.synth_port if args.synth_port is not None else int(synth_cfg.get("port", 57120))
+    data_processing_cfg = config.get("data_processing", {})
+    output_rate_hz = float(data_processing_cfg.get("output_rate_hz", 40.0))
+    output_interval_s = 1.0 / max(1.0, output_rate_hz)
+    synth_control_rate_hz = float(synth_cfg.get("control_rate_hz", min(60.0, output_rate_hz)))
+    synth_control_interval_s = 1.0 / max(1.0, synth_control_rate_hz)
     synth_status_rate_hz = float(synth_cfg.get("status_rate_hz", 20.0))
     synth_status_interval_s = 1.0 / max(1.0, synth_status_rate_hz)
     quiet_test_mode = bool(test_mode and synth_enabled and not args.verbose_test)
 
     if not serial_port_path:
-        print("Error: Could not find Arduino serial port.")
-        print("Please specify the serial port as the first argument.")
-        print("Example: python serial_to_osc_bridge.py /dev/ttyUSB0")
-        print("Or run in test mode: python serial_to_osc_bridge.py --test")
-        return 1
+        print("Receiver auto-detection enabled; waiting safely if USB is absent.")
 
     print("SpaceWizard OSC Bridge Starting...")
     print(f"Config loaded: {load_result.loaded}")
-    print(f"Serial port: {serial_port_path}")
+    print(f"Serial port: {serial_port_path or 'auto-detect'}")
     if not test_mode:
         print(f"Maestro host: {maestro_host}:{maestro_port}")
     else:
@@ -391,70 +399,33 @@ def main(argv: list[str] | None = None) -> int:
         print(f"SuperCollider synth: {synth_host}:{synth_port}")
     print()
 
-    serial_port = None
-    osc_client = None
-    synth_client = None
+    serial_port = RecoveringSerial(serial_port_path)
+    osc_client = None if test_mode or impact_test_mode else RecoveringOSCClient(maestro_host, maestro_port)
+    synth_client = RecoveringOSCClient(synth_host, synth_port) if synth_enabled else None
+    freshness = InputFreshness(float(data_processing_cfg.get("input_timeout_seconds", 0.5)))
     impact_state = ImpactState()
     session_max_deviation_g = 0.0
+    last_output_time = 0.0
+    last_synth_control_time = 0.0
     last_test_display_time = 0.0
     last_synth_status_time = 0.0
+    last_safe_output_time = float("-inf")
+    input_was_stale = True
+    previous_signal_handlers = {}
+    last_health_write = float("-inf")
 
-    try:
-        serial_port = serial.Serial(
-            port=serial_port_path,
-            baudrate=DEFAULT_BAUD_RATE,
-            timeout=SERIAL_TIMEOUT,
-        )
-        print(f"Connected to Arduino on {serial_port_path}")
-        print()
+    def stop_requested(_signum, _frame):
+        raise KeyboardInterrupt
 
-        if not test_mode:
-            osc_client = SimpleUDPClient(maestro_host, maestro_port)
-            print(f"Connected to MaestroDMX at {maestro_host}:{maestro_port}")
-        else:
-            print("Test mode: No MaestroDMX connection needed")
-
-        if synth_enabled:
-            synth_client = SimpleUDPClient(synth_host, synth_port)
-            print(f"Connected to SuperCollider synth at {synth_host}:{synth_port}")
-
-        print()
-        serial_port.readline()
-
-        if impact_test_mode:
-            print("🎯 IMPACT TEST MODE: Analyzing impact detection logic...")
-            print("Press Ctrl+C to stop")
-            print("=" * 80)
-            if impact_session_seconds > 0:
-                print(f"⏱️ IMPACT SESSION: {impact_session_seconds}s (collecting stats, no live table)")
-        elif test_mode:
-            if quiet_test_mode:
-                print("🔬 TEST MODE: Quiet synth-drive mode for lower latency...")
-                print("Use --verbose-test if you want the full terminal visualization back")
-            elif args.verbose_test:
-                print("🔬 TEST MODE: Visualizing motion data...")
-            else:
-                print("🔬 TEST MODE: Compact CLI status for faster updates...")
-            print("Press Ctrl+C to stop")
-            print("=" * 70)
-        else:
-            print("Listening for motion data...")
-            print("Press Ctrl+C to stop")
-        print()
-    except serial.SerialException as exc:
-        print(f"Error opening serial port: {exc}")
-        if test_mode:
-            print("Cannot run test mode without a serial connection.")
-            print("Please connect your Arduino or specify the correct serial port.")
-        return 1
-    except Exception as exc:
-        if not test_mode:
-            print(f"Error connecting to MaestroDMX: {exc}")
-            print("Make sure MaestroDMX is running and on the same network.")
-            print("Tip: Run 'python serial_to_osc_bridge.py --test' to test without MaestroDMX")
-        else:
-            print(f"Error in test mode: {exc}")
-        return 1
+    if threading.current_thread() is threading.main_thread():
+        for sig in (signal.SIGTERM, getattr(signal, "SIGHUP", signal.SIGTERM)):
+            if sig not in previous_signal_handlers:
+                previous_signal_handlers[sig] = signal.signal(sig, stop_requested)
+    if osc_client:
+        print(f"Maestro OSC output configured: {maestro_host}:{maestro_port} (UDP, receipt unverified)")
+    if synth_client:
+        print(f"Synth OSC output configured: {synth_host}:{synth_port}")
+    print("Bridge ready; waiting for valid sensor data (outputs off).")
 
     session_mode = impact_session_seconds > 0
     if session_mode:
@@ -472,13 +443,46 @@ def main(argv: list[str] | None = None) -> int:
     try:
         while True:
             try:
-                line = _read_latest_serial_line(serial_port)
+                now_input = time.monotonic()
+                if args.health_file and now_input - last_health_write >= 1.0:
+                    Path(args.health_file).touch()
+                    last_health_write = now_input
+                if session_mode and get_current_time_ms() - session_start_ms >= impact_session_seconds * 1000:
+                    break
+                if freshness.stale(now_input):
+                    if not input_was_stale:
+                        print("Sensor data timed out; outputs off.")
+                        impact_state = ImpactState()
+                        input_was_stale = True
+                        last_safe_output_time = float("-inf")
+                    if now_input - last_safe_output_time >= 0.2:
+                        send_safe_state(config, osc_client, synth_client)
+                        last_safe_output_time = now_input
+
+                line = serial_port.read(_read_latest_serial_line)
+                if serial_port.disconnected:
+                    freshness.invalidate()
+                    impact_state = ImpactState()
+                    input_was_stale = True
+                    send_safe_state(config, osc_client, synth_client)
+                    last_safe_output_time = time.monotonic()
                 if not line:
                     continue
 
                 data = parse_serial_line(line)
                 if not data:
                     continue
+                now_input = time.monotonic()
+                # The read itself may have crossed the deadline.
+                if freshness.stale(now_input) and not input_was_stale:
+                    impact_state = ImpactState()
+                    input_was_stale = True
+                if not freshness.accept(data, now_input):
+                    continue
+                if input_was_stale:
+                    print("Fresh sensor data received.")
+                    last_output_time = last_synth_control_time = 0.0
+                input_was_stale = False
 
                 metrics = calculate_motion_metrics(
                     data,
@@ -514,7 +518,10 @@ def main(argv: list[str] | None = None) -> int:
                     )
                 elif test_mode:
                     if synth_client:
-                        send_synth_control_messages(metrics, synth_client)
+                        now_synth_control = time.monotonic()
+                        if (now_synth_control - last_synth_control_time) >= synth_control_interval_s:
+                            send_synth_control_messages(metrics, synth_client)
+                            last_synth_control_time = now_synth_control
                         send_synth_impact_messages(metrics, synth_client)
                         now_synth_status = time.monotonic()
                         if (now_synth_status - last_synth_status_time) >= synth_status_interval_s:
@@ -539,9 +546,15 @@ def main(argv: list[str] | None = None) -> int:
                         else:
                             display_compact_test_data(data, metrics)
                 else:
-                    send_osc_messages(metrics, config, osc_client)
+                    now_output = time.monotonic()
+                    if (now_output - last_output_time) >= output_interval_s:
+                        send_osc_messages(metrics, config, osc_client)
+                        last_output_time = now_output
                     if synth_client:
-                        send_synth_control_messages(metrics, synth_client)
+                        now_synth_control = time.monotonic()
+                        if (now_synth_control - last_synth_control_time) >= synth_control_interval_s:
+                            send_synth_control_messages(metrics, synth_client)
+                            last_synth_control_time = now_synth_control
                         send_synth_impact_messages(metrics, synth_client)
                         now_synth_status = time.monotonic()
                         if (now_synth_status - last_synth_status_time) >= synth_status_interval_s:
@@ -559,6 +572,8 @@ def main(argv: list[str] | None = None) -> int:
                             f"Gate: {metrics.get('interaction_gate', 0.0):.2f}, "
                             f"Activity: {metrics.get('interaction_activity', 0.0):.2f}, "
                             f"Dev: {metrics.get('interaction_deviation_g', 0.0):.3f}g, "
+                            f"StableΔ: {metrics.get('interaction_stable_accel_delta_g', 0.0):.3f}g/"
+                            f"{metrics.get('interaction_stable_gyro_delta_dps', 0.0):.2f}°/s, "
                             f"Base: {metrics.get('interaction_baseline_g', 0.0):.3f}g, "
                             f"Pickup: {int(bool(metrics.get('pickup_triggered', False)))}"
                         )
@@ -597,6 +612,19 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("\nStopping...")
     finally:
+        for sig, handler in previous_signal_handlers.items():
+            signal.signal(sig, handler)
+        # Also runs after unexpected exceptions; receiver-side watchdog covers SIGKILL.
+        for client in (osc_client, synth_client):
+            if client:
+                client.next_retry = 0.0
+        for _ in range(3):
+            send_safe_state(config, osc_client, synth_client)
+            time.sleep(0.03)
+        serial_port.close()
+        for client in (osc_client, synth_client):
+            if client:
+                client.close()
         if session_mode:
             _print_session_report(
                 config=config,
@@ -612,8 +640,6 @@ def main(argv: list[str] | None = None) -> int:
                 ts_trigger=ts_trigger,
                 save_plot=session_plot,
             )
-        if serial_port and serial_port.is_open:
-            serial_port.close()
         print("Serial connection closed.")
 
     return 0

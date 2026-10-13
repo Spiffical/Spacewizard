@@ -23,6 +23,8 @@ class ImpactState:
     interaction_rest_candidate_time_ms: int = 0
     interaction_baseline_g: float | None = None
     interaction_stable_accel_g: float | None = None
+    interaction_stable_accel_vector: tuple[float, float, float] | None = None
+    interaction_stable_gyro_vector: tuple[float, float, float] | None = None
     interaction_stable_accel_start_time_ms: int = 0
     synth_filtered_gravity: tuple[float, float, float] | None = None
     synth_horizontal_yaw_norm: float | None = None
@@ -30,11 +32,17 @@ class ImpactState:
     synth_axis_roll_deg: float = 0.0
     synth_last_roll_measurement_deg: float | None = None
     synth_last_orientation_update_ms: int = 0
+    song_active: bool = False
+    song_energy: float = 0.0
+    song_gyro_level: float | None = None
+    song_accel_level: float | None = None
+    song_start_candidate_time_ms: int = 0
+    song_last_update_ms: int = 0
 
 
 def get_current_time_ms() -> int:
     """Get current time in milliseconds."""
-    return int(time.time() * 1000)
+    return int(time.monotonic() * 1000)
 
 
 def _clamp(value: float, min_value: float, max_value: float) -> float:
@@ -142,6 +150,17 @@ def _wrap_signed_degrees(value: float) -> float:
     return ((value + 180.0) % 360.0) - 180.0
 
 
+def _vector_distance(
+    left: tuple[float, float, float],
+    right: tuple[float, float, float],
+) -> float:
+    return math.sqrt(
+        ((left[0] - right[0]) ** 2)
+        + ((left[1] - right[1]) ** 2)
+        + ((left[2] - right[2]) ** 2)
+    )
+
+
 def _quaternion_relative_twist_degrees(
     reference_quaternion: tuple[float, float, float, float],
     current_quaternion: tuple[float, float, float, float],
@@ -201,6 +220,9 @@ def calculate_motion_metrics(
     gx = data.get("GX", 0.0)
     gy = data.get("GY", 0.0)
     gz = data.get("GZ", 0.0)
+    raw_gx = gx
+    raw_gy = gy
+    raw_gz = gz
     yaw = data.get("YAW", 0.0)
     pitch = data.get("PITCH", 0.0)
     roll = data.get("ROLL", 0.0)
@@ -309,8 +331,9 @@ def calculate_motion_metrics(
                     impact_state.last_impact_time = current_time
                 impact_state.motion_active = False
 
-    # Interaction mode: lights on while object is actively moving,
-    # then off again after a short rest hold.
+    # Interaction mode: lights on while object is actively moving. Once active,
+    # only sustained low sensor delta is allowed to turn the gate back off; low
+    # absolute activity alone is too easy to hit while a person is moving slowly.
     interaction_cfg = config.get("interaction_mode", {})
     interaction_enabled = interaction_cfg.get("enabled", True)
     baseline_config = interaction_cfg.get("baseline_g")
@@ -343,24 +366,68 @@ def calculate_motion_metrics(
     rest_hold_ms = int(interaction_cfg.get("rest_hold_ms", 250))
     stable_rest_enabled = bool(interaction_cfg.get("stable_rest_enabled", True))
     stable_accel_delta_g = float(interaction_cfg.get("stable_accel_delta_g", 0.006))
+    stable_gyro_delta_dps = float(interaction_cfg.get("stable_gyro_delta_dps", 1.0))
     stable_hold_ms = int(interaction_cfg.get("stable_hold_ms", 1800))
     stable_gyro_max_dps = float(interaction_cfg.get("stable_gyro_max_dps", gyro_off_dps))
+    movement_start_accel_delta_g = float(
+        interaction_cfg.get("movement_start_accel_delta_g", max(stable_accel_delta_g * 6.0, 0.012))
+    )
+    movement_start_gyro_delta_dps = float(
+        interaction_cfg.get("movement_start_gyro_delta_dps", max(stable_gyro_delta_dps * 3.0, 0.45))
+    )
     active_brightness = _clamp(float(interaction_cfg.get("active_brightness", 1.0)), 0.0, 1.0)
     rest_brightness = _clamp(float(interaction_cfg.get("rest_brightness", 0.0)), 0.0, 1.0)
     stable_rest = False
+    stable_accel_delta = 0.0
+    stable_gyro_delta = 0.0
+    current_accel_vector = (float(raw_ax), float(raw_ay), float(raw_az))
+    current_gyro_vector = (float(raw_gx), float(raw_gy), float(raw_gz))
+
+    def reset_stable_reference() -> None:
+        impact_state.interaction_stable_accel_g = None
+        impact_state.interaction_stable_accel_vector = None
+        impact_state.interaction_stable_gyro_vector = None
+        impact_state.interaction_stable_accel_start_time_ms = 0
+
+    def set_stable_reference() -> None:
+        impact_state.interaction_stable_accel_g = accel_magnitude
+        impact_state.interaction_stable_accel_vector = current_accel_vector
+        impact_state.interaction_stable_gyro_vector = current_gyro_vector
+        impact_state.interaction_stable_accel_start_time_ms = current_time
 
     if interaction_enabled:
-        start_motion = deviation_from_baseline >= accel_on_g or gyro_magnitude >= gyro_on_dps
+        if stable_rest_enabled:
+            if (
+                impact_state.interaction_stable_accel_vector is None
+                or impact_state.interaction_stable_gyro_vector is None
+            ):
+                set_stable_reference()
+            else:
+                stable_accel_delta = _vector_distance(
+                    current_accel_vector,
+                    impact_state.interaction_stable_accel_vector,
+                )
+                stable_gyro_delta = _vector_distance(
+                    current_gyro_vector,
+                    impact_state.interaction_stable_gyro_vector,
+                )
+        else:
+            reset_stable_reference()
+
+        start_motion = (
+            deviation_from_baseline >= accel_on_g
+            or gyro_magnitude >= gyro_on_dps
+            or stable_accel_delta >= movement_start_accel_delta_g
+            or stable_gyro_delta >= movement_start_gyro_delta_dps
+        )
         stop_motion = deviation_from_baseline <= accel_off_g and gyro_magnitude <= gyro_off_dps
 
         if impact_state.interaction_active and stable_rest_enabled:
-            if gyro_magnitude > stable_gyro_max_dps:
-                impact_state.interaction_stable_accel_g = accel_magnitude
-                impact_state.interaction_stable_accel_start_time_ms = current_time
-            elif impact_state.interaction_stable_accel_g is None:
-                impact_state.interaction_stable_accel_g = accel_magnitude
-                impact_state.interaction_stable_accel_start_time_ms = current_time
-            elif abs(accel_magnitude - impact_state.interaction_stable_accel_g) <= stable_accel_delta_g:
+            if (
+                stable_accel_delta <= stable_accel_delta_g
+                and stable_gyro_delta <= stable_gyro_delta_dps
+                and gyro_magnitude <= stable_gyro_max_dps
+            ):
                 if impact_state.interaction_stable_accel_start_time_ms == 0:
                     impact_state.interaction_stable_accel_start_time_ms = current_time
                 stable_rest = (
@@ -368,11 +435,7 @@ def calculate_motion_metrics(
                     >= stable_hold_ms
                 )
             else:
-                impact_state.interaction_stable_accel_g = accel_magnitude
-                impact_state.interaction_stable_accel_start_time_ms = current_time
-        else:
-            impact_state.interaction_stable_accel_g = None
-            impact_state.interaction_stable_accel_start_time_ms = 0
+                set_stable_reference()
 
         if not impact_state.interaction_active:
             if start_motion:
@@ -385,28 +448,33 @@ def calculate_motion_metrics(
                     impact_state.interaction_active = True
                     impact_state.interaction_rest_candidate_time_ms = 0
                     impact_state.interaction_start_candidate_time_ms = 0
-                    impact_state.interaction_stable_accel_g = accel_magnitude
-                    impact_state.interaction_stable_accel_start_time_ms = current_time
+                    set_stable_reference()
                     pickup_triggered = True
             else:
                 impact_state.interaction_start_candidate_time_ms = 0
         elif impact_state.interaction_active:
             impact_state.interaction_start_candidate_time_ms = 0
-            if stop_motion or stable_rest:
+            rest_condition = stable_rest if stable_rest_enabled else stop_motion
+            if rest_condition:
                 if impact_state.interaction_rest_candidate_time_ms == 0:
                     impact_state.interaction_rest_candidate_time_ms = current_time
                 elif current_time - impact_state.interaction_rest_candidate_time_ms >= rest_hold_ms:
                     impact_state.interaction_active = False
-                    impact_state.interaction_stable_accel_g = None
-                    impact_state.interaction_stable_accel_start_time_ms = 0
+                    # The settled pose is the next pickup's reference. Keeping the
+                    # previous moving baseline here immediately retriggers pickup.
+                    if baseline_config is None:
+                        impact_state.interaction_baseline_g = accel_magnitude
+                        interaction_baseline_g = accel_magnitude
+                        deviation_from_baseline = 0.0
+                    set_stable_reference()
+                    impact_state.interaction_rest_candidate_time_ms = 0
             else:
                 impact_state.interaction_rest_candidate_time_ms = 0
     else:
         impact_state.interaction_active = True
         impact_state.interaction_start_candidate_time_ms = 0
         impact_state.interaction_rest_candidate_time_ms = 0
-        impact_state.interaction_stable_accel_g = None
-        impact_state.interaction_stable_accel_start_time_ms = 0
+        reset_stable_reference()
 
     interaction_gate = (
         active_brightness if impact_state.interaction_active else rest_brightness
@@ -416,6 +484,75 @@ def calculate_motion_metrics(
     interaction_activity = max(accel_activity, gyro_activity)
     if not impact_state.interaction_active:
         interaction_activity = 0.0
+
+    # Song energy (song mode, --mode day-o): an averaged measure of how much the candle
+    # is being moved, 0 to 1. Deliberate movement starts the song at full energy. Holding
+    # the candle still lets the energy fall linearly to zero over wind_down_seconds (the
+    # synth slows the song and lowers its pitch and volume as it falls); renewed movement
+    # raises it again with a recover_seconds time constant instead of snapping back. The
+    # song stops when the energy reaches zero, and only plays while the interaction gate
+    # is open. Movement is judged on rotation and linear acceleration smoothed over
+    # smoothing_seconds.
+    song_cfg = config.get("song_gate", {})
+    if not isinstance(song_cfg, dict):
+        song_cfg = {}
+    song_gyro_on = float(song_cfg.get("gyro_on_dps", 2.5))
+    song_accel_on = float(song_cfg.get("accel_on_g", 0.06))
+    song_gyro_still = float(song_cfg.get("gyro_still_dps", 0.9))
+    song_gyro_full = max(float(song_cfg.get("gyro_full_dps", 1.8)), song_gyro_still + 1e-3)
+    song_accel_still = float(song_cfg.get("accel_still_g", 0.03))
+    song_accel_full = max(float(song_cfg.get("accel_full_g", 0.07)), song_accel_still + 1e-4)
+    song_tau_s = max(float(song_cfg.get("smoothing_seconds", 0.25)), 0.01)
+    song_start_hold_ms = int(song_cfg.get("start_hold_ms", 50))
+    song_wind_down_s = max(float(song_cfg.get("wind_down_seconds", 3.0)), 0.1)
+    song_recover_s = max(float(song_cfg.get("recover_seconds", 0.5)), 0.01)
+    last_song_update_ms = impact_state.song_last_update_ms
+    song_dt_s = (
+        _clamp((current_time - last_song_update_ms) / 1000.0, 0.0, 1.0)
+        if last_song_update_ms
+        else 0.0
+    )
+    impact_state.song_last_update_ms = current_time
+    if impact_state.song_gyro_level is None or impact_state.song_accel_level is None:
+        impact_state.song_gyro_level = gyro_magnitude
+        impact_state.song_accel_level = deviation_from_baseline
+    else:
+        song_alpha = 1.0 - math.exp(-song_dt_s / song_tau_s)
+        impact_state.song_gyro_level += song_alpha * (gyro_magnitude - impact_state.song_gyro_level)
+        impact_state.song_accel_level += song_alpha * (
+            deviation_from_baseline - impact_state.song_accel_level
+        )
+    song_target = max(
+        _scale_to_unit(impact_state.song_gyro_level, song_gyro_still, song_gyro_full),
+        _scale_to_unit(impact_state.song_accel_level, song_accel_still, song_accel_full),
+    )
+    if song_target > impact_state.song_energy:
+        impact_state.song_energy += (song_target - impact_state.song_energy) * (
+            1.0 - math.exp(-song_dt_s / song_recover_s)
+        )
+    else:
+        impact_state.song_energy = max(
+            song_target, impact_state.song_energy - (song_dt_s / song_wind_down_s)
+        )
+    song_moving = (
+        impact_state.song_gyro_level >= song_gyro_on
+        or impact_state.song_accel_level >= song_accel_on
+    )
+    if not impact_state.interaction_active:
+        impact_state.song_active = False
+        impact_state.song_start_candidate_time_ms = 0
+    elif not impact_state.song_active:
+        if song_moving:
+            if impact_state.song_start_candidate_time_ms == 0:
+                impact_state.song_start_candidate_time_ms = current_time
+            if current_time - impact_state.song_start_candidate_time_ms >= song_start_hold_ms:
+                impact_state.song_active = True
+                impact_state.song_energy = 1.0
+                impact_state.song_start_candidate_time_ms = 0
+        else:
+            impact_state.song_start_candidate_time_ms = 0
+    elif impact_state.song_energy <= 0.0:
+        impact_state.song_active = False
 
     synth_cfg = config.get("synth_settings", {})
     tilt_cfg = synth_cfg.get("tilt_mapping", {}) if isinstance(synth_cfg, dict) else {}
@@ -634,12 +771,16 @@ def calculate_motion_metrics(
         "interaction_baseline_g": interaction_baseline_g,
         "interaction_stable_rest": stable_rest,
         "interaction_stable_accel_g": impact_state.interaction_stable_accel_g,
-        "interaction_stable_accel_delta_g": (
-            abs(accel_magnitude - impact_state.interaction_stable_accel_g)
-            if impact_state.interaction_stable_accel_g is not None
-            else 0.0
-        ),
+        "interaction_stable_accel_delta_g": stable_accel_delta,
+        "interaction_stable_gyro_delta_dps": stable_gyro_delta,
+        "interaction_stable_gyro_delta_threshold_dps": stable_gyro_delta_dps,
+        "interaction_movement_start_accel_delta_g": movement_start_accel_delta_g,
+        "interaction_movement_start_gyro_delta_dps": movement_start_gyro_delta_dps,
         "interaction_stable_hold_ms": stable_hold_ms,
+        "song_gate_active": impact_state.song_active,
+        "song_energy": impact_state.song_energy,
+        "song_motion_gyro": impact_state.song_gyro_level,
+        "song_motion_accel": impact_state.song_accel_level,
         "synth_yaw_norm": synth_yaw_norm,
         "synth_pitch_norm": synth_pitch_norm,
         "synth_roll_norm": synth_roll_norm,

@@ -59,12 +59,22 @@ def _resolve_flat_mapping_messages(
         is_threshold = mapping.get("threshold", False)
 
         abs_mode = False
+        const_mode = False
         resolved_source = source
-        if isinstance(resolved_source, str) and resolved_source.startswith("abs:"):
-            abs_mode = True
-            resolved_source = resolved_source.split(":", 1)[1]
+        if isinstance(resolved_source, str):
+            if resolved_source.startswith("abs:"):
+                abs_mode = True
+                resolved_source = resolved_source.split(":", 1)[1]
+            elif resolved_source.startswith("const:"):
+                const_mode = True
 
-        value = metrics.get(resolved_source)
+        if const_mode:
+            try:
+                value = float(resolved_source.split(":", 1)[1])
+            except ValueError:
+                continue
+        else:
+            value = metrics.get(resolved_source)
         if value is None:
             continue
         if abs_mode and isinstance(value, (int, float)):
@@ -187,8 +197,8 @@ def send_osc_messages(
 
     for msg in resolve_osc_messages(metrics, config):
         try:
-            osc_client.send_message(msg.address, msg.value)
-            sent_previews.append(msg.preview)
+            if osc_client.send_message(msg.address, msg.value) is not False:
+                sent_previews.append(msg.preview)
         except Exception as exc:  # pragma: no cover - exercised with live networking
             error_count += 1
             if first_error is None:
@@ -246,7 +256,12 @@ def send_synth_control_messages(
 
     synth_client.send_message(
         "/spacewizard/auduino",
-        [gate, activity, pitch_norm, roll_norm, spin_norm, yaw_norm],
+        [gate, activity, pitch_norm, roll_norm, spin_norm, yaw_norm,
+         1.0 if metrics.get("input_valid", True) else 0.0,
+         # Song mode only: is the song playing, and its motion energy (0..1, drives speed,
+         # pitch and volume). Both are 0 when input is invalid.
+         1.0 if (metrics.get("song_gate_active", False) and metrics.get("input_valid", True)) else 0.0,
+         clamp(float(metrics.get("song_energy", 0.0)), 0.0, 1.0) if metrics.get("input_valid", True) else 0.0],
     )
 
 
@@ -297,3 +312,22 @@ def send_synth_status_messages(
         "/spacewizard/live_status",
         [gate, activity, pitch_norm, roll_norm, spin_norm, yaw_norm],
     )
+
+
+def send_safe_state(config: dict[str, Any], osc_client: Any, synth_client: Any) -> None:
+    """Explicitly extinguish outputs, independent of configured resting brightness."""
+    if osc_client:
+        values = {"/global/brightness": 0.0, "/live/1/brightness": 0.0}
+        for mapping in config.get("osc_mappings", []):
+            address = mapping.get("osc_address", "")
+            if mapping.get("enabled", True) and address:
+                if address.endswith("/brightness"):
+                    values[address] = 0.0
+                elif mapping.get("threshold", False):
+                    values[address] = False
+        for address, value in values.items():
+            osc_client.send_message(address, value)
+    if synth_client:
+        safe = {"interaction_active": False, "input_valid": False}
+        send_synth_control_messages(safe, synth_client)
+        send_synth_status_messages(safe, synth_client)

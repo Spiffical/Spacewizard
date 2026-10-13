@@ -14,11 +14,12 @@
  *
  * Where:
  * - FMT: serial format version for the Python parser
- * - AX, AY, AZ: raw accelerometer counts (divide by 16384 for g-force)
- * - GX, GY, GZ: raw gyroscope counts (divide by 131 for degrees/second)
+ * - AX, AY, AZ / GX, GY, GZ: raw sensor counts; the bridge preserves legacy
+ *   scaling pending a coordinated physical-units correction and sensitivity retune
  * - YAW, PITCH, ROLL: orientation angles (degrees)
  * - QW, QX, QY, QZ: raw quaternion counts (divide by 16384)
  * - IMP: impact flag (0/1)
+ * - SEQ, VALID: sample sequence and freshness flag from updated transmitters
  */
 
 #include <SPI.h>
@@ -34,8 +35,8 @@
 // Communication pipes (must match transmitter addresses)
 const uint64_t RADIO_PIPES[3] = {
     0xE8E8F0F0E1LL,  // Primary communication pipe
-    0xEEFDFAF50DFLL,  // Secondary communication pipe
-    0xEEFDFAF50E2LL   // Tertiary communication pipe
+    0xE8E8F0F0DFLL,  // Pipes 2-5 inherit pipe 1's upper address bytes
+    0xE8E8F0F0E2LL
 };
 
 // Serial Configuration
@@ -48,8 +49,12 @@ const uint64_t RADIO_PIPES[3] = {
 RF24 radio(RADIO_CE_PIN, RADIO_CS_PIN);
 
 // Received data structure from transmitter
-// [accelX, accelY, accelZ, gyroX, gyroY, gyroZ, yaw, pitch, roll, qW, qX, qY, qZ, impact]
-int16_t receivedData[14];
+// Original 14 motion fields, followed by sample sequence and 0x5700|valid.
+int16_t receivedData[16];
+bool packetHasMetadata = false;
+bool radioReady = false;
+unsigned long lastPacketMs = 0;
+unsigned long lastRadioAttemptMs = 0;
 
 // ================================================================
 // ===                      SETUP FUNCTION                      ===
@@ -76,7 +81,12 @@ void initializeSerial() {
  * Initialize the nRF24L01 radio module for wireless communication.
  */
 void initializeRadio() {
-    radio.begin();
+    lastRadioAttemptMs = millis();
+    radioReady = radio.begin();
+    if (!radioReady) {
+        Serial.println("Radio initialization failed; retrying");
+        return;
+    }
 
     // Configure radio settings for reliable communication
     radio.enableDynamicPayloads();
@@ -85,7 +95,7 @@ void initializeRadio() {
     radio.setAutoAck(true);           // Enable auto-acknowledgment
     radio.setCRCLength(RF24_CRC_16);  // Use 16-bit CRC for error checking
 
-    // Open communication pipes for reading (try all three for redundancy)
+    // Retain alternate addresses for compatibility; the updated TX uses primary.
     radio.openReadingPipe(1, RADIO_PIPES[0]);
     radio.openReadingPipe(2, RADIO_PIPES[1]);
     radio.openReadingPipe(3, RADIO_PIPES[2]);
@@ -103,6 +113,10 @@ void initializeRadio() {
  * Handles radio communication and serial data output.
  */
 void loop() {
+    unsigned long now = millis();
+    if ((!radioReady || now - lastPacketMs >= 3000) && now - lastRadioAttemptMs >= 3000) {
+        initializeRadio();
+    }
     processRadioData();
 }
 
@@ -110,14 +124,30 @@ void loop() {
  * Process incoming radio data and output to serial for Python script.
  */
 void processRadioData() {
-    if (radio.available()) {
+    if (radioReady && radio.available()) {
+        bool accepted = false;
+        uint8_t packetsRead = 0;
         // Drop stale queued packets so the bridge always sees the newest pose.
         do {
-            radio.read(receivedData, sizeof(receivedData));
-        } while (radio.available());
+            uint8_t size = radio.getDynamicPayloadSize();
+            if (size != 28 && size != 32) {
+                radio.flush_rx();
+                break;
+            }
+            int16_t packet[16] = {0};
+            radio.read(packet, size);
+            packetsRead++;
+            if (size == 32 && (packet[15] & 0xFFFE) != 0x5700) continue;
+            memcpy(receivedData, packet, sizeof(receivedData));
+            packetHasMetadata = (size == 32);
+            accepted = true;
+        } while (radio.available() && packetsRead < 8);
 
         // Output data in the format expected by Python script
-        printSerialData();
+        if (accepted) {
+            lastPacketMs = millis();
+            printSerialData();
+        }
     }
 }
 
@@ -157,5 +187,11 @@ void printSerialData() {
     Serial.print(receivedData[12]);
     Serial.print(" IMP=");
     Serial.print(receivedData[13] != 0 ? 1 : 0);
+    if (packetHasMetadata) {
+        Serial.print(" SEQ=");
+        Serial.print((uint16_t)receivedData[14]);
+        Serial.print(" VALID=");
+        Serial.print(receivedData[15] & 1);
+    }
     Serial.println();
 }

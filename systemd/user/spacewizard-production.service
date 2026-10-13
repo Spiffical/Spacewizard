@@ -1,0 +1,23 @@
+[Unit]
+Description=SpaceWizard production rig (Maestro lighting + SuperCollider synth)
+After=default.target pipewire.service wireplumber.service
+Wants=pipewire.service wireplumber.service
+
+[Service]
+Type=simple
+WorkingDirectory=%h/Spacewizard-sound
+Environment=SPACEWIZARD_MODE=smooth-sine
+Environment=SPACEWIZARD_SMOOTH_PRESET=pi-quiet-pentatonic
+Environment=SPACEWIZARD_SERIAL_PORT=/dev/serial/by-id/usb-1a86_USB2.0-Serial-if00-port0
+Environment=SPACEWIZARD_MAESTRO_HOST=192.168.37.1
+Environment=SPACEWIZARD_MAESTRO_PORT=7672
+Environment=SPACEWIZARD_SERVICE_POLL_SECONDS=2
+ExecStart=%h/Spacewizard-sound/scripts/spacewizard_production_runner.sh
+ExecStop=%h/Spacewizard-sound/spacewizard_live.sh stop
+Restart=on-failure
+RestartSec=8
+TimeoutStartSec=120
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

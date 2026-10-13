@@ -3,3 +3,9 @@ __pycache__/
 *.py[cod]
 maestro-osc-version/impact_session_*.png
 maestro-osc-version/.runtime/
+# Song-mode recordings are copyrighted; keep them out of git.
+maestro-osc-version/samples/song/*
+!maestro-osc-version/samples/song/README.md
+# The stand-prompt voice clip has no recorded license; keep it out of git.
+maestro-osc-version/samples/voice/*
+!maestro-osc-version/samples/voice/README.md

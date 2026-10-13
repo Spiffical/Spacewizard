@@ -5,9 +5,25 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 PYTHON_BIN=${PYTHON_BIN:-"$REPO_ROOT/.venv/bin/python"}
-SCLANG_BIN=${SCLANG_BIN:-"/Applications/SuperCollider.app/Contents/MacOS/sclang"}
+if [[ -z "${SCLANG_BIN:-}" ]]; then
+    if [[ -x "/Applications/SuperCollider.app/Contents/MacOS/sclang" ]]; then
+        SCLANG_BIN="/Applications/SuperCollider.app/Contents/MacOS/sclang"
+    else
+        SCLANG_BIN=$(command -v sclang || true)
+    fi
+fi
+if [[ -z "${SESSION_SHELL:-}" ]]; then
+    SESSION_SHELL=$(command -v bash || command -v sh || true)
+fi
+if [[ -z "${QT_QPA_PLATFORM:-}" ]] && [[ "$(uname -s)" != "Darwin" ]] && [[ -z "${DISPLAY:-}" ]] && [[ -z "${WAYLAND_DISPLAY:-}" ]]; then
+    export QT_QPA_PLATFORM=offscreen
+fi
+if [[ -z "${SCLANG_WRAPPER:-}" ]] && [[ "$(uname -s)" != "Darwin" ]] && command -v pw-jack >/dev/null 2>&1; then
+    SCLANG_WRAPPER=$(command -v pw-jack)
+fi
 SYNTH_FILE="$SCRIPT_DIR/synth/SpaceWizardSynth.scd"
 BRIDGE_SCRIPT="$SCRIPT_DIR/run_osc_bridge.py"
+SOUND_PRESET_CONFIG_FILE=${SOUND_PRESET_CONFIG_FILE:-"$SCRIPT_DIR/sound_presets.scd"}
 RUNTIME_DIR="$SCRIPT_DIR/.runtime"
 LOG_DIR="$RUNTIME_DIR/logs"
 BOOT_FILE="$RUNTIME_DIR/spacewizard_demo_boot.scd"
@@ -15,9 +31,11 @@ CHOIR_SAMPLE_DIR="$SCRIPT_DIR/samples/choir"
 CHOIR_ASSET_SAMPLE_DIR="$REPO_ROOT/assets"
 DEMO_LOG="$LOG_DIR/sclang_demo.log"
 DEMO_PID_FILE="$RUNTIME_DIR/sclang_demo.pid"
+DEMO_SCREEN_NAME="spacewizard-demo"
 LIVE_SCLANG_PID_FILE="$RUNTIME_DIR/sclang.pid"
 LIVE_BRIDGE_PID_FILE="$RUNTIME_DIR/bridge.pid"
 DEFAULT_FALLBACK_OUTPUT_DEVICE="MacBook Pro Speakers"
+INPUT_DEVICE=${SPACEWIZARD_INPUT_DEVICE:-"MacBook Pro Microphone"}
 
 STOP_ONLY=0
 OUTPUT_DEVICE_OVERRIDE=""
@@ -81,6 +99,17 @@ kill_matching() {
     fi
 }
 
+stop_screen_session() {
+    if ! command -v screen >/dev/null 2>&1; then
+        return
+    fi
+
+    if screen -ls | grep -q "[.]$DEMO_SCREEN_NAME[[:space:]]"; then
+        log "Stopping demo screen session"
+        screen -S "$DEMO_SCREEN_NAME" -X quit >/dev/null 2>&1 || true
+    fi
+}
+
 wait_for_exit() {
     local pattern="$1"
     local timeout_seconds="$2"
@@ -112,6 +141,7 @@ PY
 stop_existing_processes() {
     mkdir -p "$LOG_DIR"
 
+    stop_screen_session
     stop_pid_file "$DEMO_PID_FILE" "demo SuperCollider"
     stop_pid_file "$LIVE_SCLANG_PID_FILE" "live SuperCollider"
     stop_pid_file "$LIVE_BRIDGE_PID_FILE" "live bridge"
@@ -181,13 +211,15 @@ PY
 write_boot_file() {
     local output_device="$1"
     local requested_live_mode='\ambientFlow'
+    local requested_smooth_preset='nil'
     local ready_condition='(~swAmbientScene.notNil) and: { ~swAmbientGUI.notNil }'
     local launch_body=$'        ~swAmbientScene.();\n        ~swAmbientGUI.();\n        "SpaceWizard demo GUI ready.".postln;'
 
     if [[ "$DEMO_MODE" == "choir-textures" ]]; then
         requested_live_mode='\smoothSine'
+        requested_smooth_preset='\quietPentatonic'
         ready_condition='~swChoirTextureGUI.notNil'
-        launch_body=$'        ~swChoirTextureGUI.();\n        "SpaceWizard choir texture GUI ready.".postln;'
+        launch_body=$'        ~swChoirTextureGUI.();\n        ~swDemoGuiWatch = AppClock.sched(1.0, {\n            if(~swChoirTextureWindow.isNil) {\n                ~swChoirTextureGUI.();\n                "SpaceWizard choir texture GUI reopened.".postln;\n            };\n            1.0;\n        });\n        "SpaceWizard choir texture GUI ready.".postln;'
     elif [[ "$DEMO_MODE" == "ambient-lab" ]]; then
         requested_live_mode='\smoothSine'
         ready_condition='(~swAmbientLabScene.notNil) and: { ~swAmbientLabGUI.notNil }'
@@ -196,9 +228,12 @@ write_boot_file() {
 
     cat > "$BOOT_FILE" <<EOF
 ~swRequestedLiveMode = $requested_live_mode;
+~swRequestedSmoothPreset = $requested_smooth_preset;
 ~swChoirSampleDir = "$CHOIR_SAMPLE_DIR";
 ~swChoirAssetSampleDir = "$CHOIR_ASSET_SAMPLE_DIR";
+~swSoundPresetConfigFile = "$SOUND_PRESET_CONFIG_FILE";
 s.options.numInputBusChannels_(0);
+s.options.inDevice_("$INPUT_DEVICE");
 s.options.outDevice_("$output_device");
 thisProcess.interpreter.executeFile("$SYNTH_FILE");
 AppClock.sched(0.2, {
@@ -209,6 +244,9 @@ $launch_body
         0.2;
     };
 });
+~swDemoKeepAliveRoutine = Routine({
+    loop { 1.0.wait; };
+}).play(SystemClock);
 EOF
 }
 
@@ -247,6 +285,7 @@ PY
 }
 
 start_demo() {
+    local -a sclang_args
     local ready_text="SpaceWizard demo GUI ready."
 
     if [[ "$DEMO_MODE" == "choir-textures" ]]; then
@@ -256,10 +295,32 @@ start_demo() {
     fi
 
     : > "$DEMO_LOG"
+    rm -f "$DEMO_PID_FILE"
     log "Starting SuperCollider demo ($DEMO_MODE)"
-    nohup "$SCLANG_BIN" -D "$BOOT_FILE" > "$DEMO_LOG" 2>&1 &
-    local pid=$!
-    printf '%s\n' "$pid" > "$DEMO_PID_FILE"
+    if [[ -n "${SCLANG_WRAPPER:-}" ]]; then
+        sclang_args=("$SCLANG_WRAPPER" "$SCLANG_BIN" "-D" "-r" "$BOOT_FILE")
+    else
+        sclang_args=("$SCLANG_BIN" "-D" "-r" "$BOOT_FILE")
+    fi
+
+    if command -v screen >/dev/null 2>&1; then
+        screen -dmS "$DEMO_SCREEN_NAME" "$SESSION_SHELL" -lc 'pid_file=$1; log_file=$2; shift 2; printf "%s\n" "$$" > "$pid_file"; exec "$@" > "$log_file" 2>&1' _ "$DEMO_PID_FILE" "$DEMO_LOG" "${sclang_args[@]}"
+    else
+        nohup "$SESSION_SHELL" -lc 'pid_file=$1; log_file=$2; shift 2; printf "%s\n" "$$" > "$pid_file"; exec "$@" > "$log_file" 2>&1' _ "$DEMO_PID_FILE" "$DEMO_LOG" "${sclang_args[@]}" >/dev/null 2>&1 &
+    fi
+
+    for _ in {1..50}; do
+        [[ -s "$DEMO_PID_FILE" ]] && break
+        sleep 0.1
+    done
+
+    if [[ ! -s "$DEMO_PID_FILE" ]]; then
+        printf 'Demo mode failed to start SuperCollider session.\n' >&2
+        exit 1
+    fi
+
+    local pid
+    pid=$(<"$DEMO_PID_FILE")
 
     if ! wait_for_log_text "$DEMO_LOG" "$ready_text" 30 "$pid"; then
         printf 'Demo mode failed to boot cleanly. Recent log output:\n' >&2
@@ -310,6 +371,7 @@ esac
 
 require_file "$PYTHON_BIN" "Python interpreter"
 require_file "$SCLANG_BIN" "SuperCollider language executable"
+require_file "$SESSION_SHELL" "session shell"
 require_file "$SYNTH_FILE" "SpaceWizard synth patch"
 
 stop_existing_processes
@@ -323,6 +385,7 @@ mkdir -p "$LOG_DIR"
 
 OUTPUT_DEVICE=$(detect_output_device)
 log "Using audio output $OUTPUT_DEVICE"
+log "Using audio input $INPUT_DEVICE"
 write_boot_file "$OUTPUT_DEVICE"
 start_demo
 

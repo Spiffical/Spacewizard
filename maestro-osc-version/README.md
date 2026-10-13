@@ -502,6 +502,49 @@ Where:
 
 ## Troubleshooting
 
+### Input loss and recovery
+
+The bridge sends explicit off commands at startup, during missing/invalid input,
+and on normal shutdown (including SIGTERM/SIGHUP). Its default valid-frame timeout
+is `data_processing.input_timeout_seconds: 0.5`. Safe-state commands repeat every
+0.2 seconds until fresh data returns. The synth additionally closes its motion gate
+and cancels stand prompts after 0.75 seconds without live control; the normal sound
+fade-out still applies. Neither mechanism can deliver an off command to Maestro
+while the network to Maestro itself is unavailable.
+
+Serial removal/startup absence is retried every second. An explicit port is retried
+at the same path (prefer `/dev/serial/by-id/...` on the Pi); automatic discovery is
+repeated if no port was specified. OSC destinations recover independently.
+
+The new firmware adds `SEQ` and `VALID` to serial frames without changing `FMT=2`
+sensor scaling. The receiver accepts both the original 28-byte radio payload and
+the new 32-byte payload. Repeated sequence numbers and invalid samples do not refresh
+the bridge timeout. **Both updated Arduino sketches must be flashed to gain sensor
+freshness detection and the complete firmware recovery path.** Legacy transmitters
+remain usable, but a frozen sensor that keeps emitting legacy packets cannot be
+distinguished from a live sensor by the bridge.
+
+The production runner checks synth and bridge heartbeat files as well as PIDs.
+If either heartbeat stops for over ten seconds, the service restarts the rig.
+The synth heartbeat stops when its audio server stops. A candle that is switched
+off keeps outputs off and does not itself cause restart loops.
+
+Local regression checks (from the repository root):
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+.venv/bin/python tests/run_synth_reliability.py
+.venv/bin/python tests/run_synth_integration.py --output-device 'BlackHole 2ch'
+arduino-cli compile --fqbn arduino:avr:nano maestro-osc-version/Spacewizard2point0_osc_receiver
+arduino-cli compile --fqbn arduino:avr:nano maestro-osc-version/Spacewizard2point0_osc_transmitter
+```
+
+The synth integration check uses private OSC ports and a specified virtual audio
+output. On Linux, set `SCLANG_BIN`/`QT_QPA_PLATFORM=offscreen` as needed and choose an
+appropriate test output. Tests do not replace physical RF, power-fault, Maestro,
+and speaker checks. Sensor scaling and sensitivity need a separate candle-on
+calibration session; the existing tuned units are intentionally retained here.
+
 ### Serial Port Issues
 - **Linux/macOS**: Check `/dev/ttyUSB*` or `/dev/ttyACM*` (preferred over Bluetooth)
 - **Windows**: Check `COM3`, `COM4`, etc. in Device Manager

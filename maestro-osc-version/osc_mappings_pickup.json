@@ -1,58 +1,47 @@
 {
-  "comment": "SpaceWizard pickup interaction profile (recommended)",
+  "comment": "SpaceWizard pickup interaction profile: movement gates brightness; pitch alone changes color select",
   "mapping_constants": {
     "sources": {
       "interaction_gate": {
         "source": "interaction_gate",
         "scale_min": 0.0,
         "scale_max": 1.0,
-        "description": "Hard on/off gate from pickup interaction mode"
+        "description": "Full brightness while active/moving, off after stationary rest"
       },
-      "interaction_activity": {
-        "source": "interaction_activity",
+      "max_value": {
+        "source": "const:1.0",
         "scale_min": 0.0,
-        "scale_max": 2.0,
-        "description": "Normalized amount of motion while active"
+        "scale_max": 1.0,
+        "description": "Fixed maximum value"
       },
-      "pickup_event": {
-        "source": "pickup_triggered",
-        "threshold": true,
-        "description": "One-shot trigger when object is picked up"
-      },
-      "gyro_z_abs_fast": {
-        "source": "abs:gyroscope_z",
+      "mid_value": {
+        "source": "const:0.5",
         "scale_min": 0.0,
-        "scale_max": 45.0,
-        "description": "Spin rate for speed/motion"
+        "scale_max": 1.0,
+        "description": "Fixed neutral value"
       },
-      "gyro_mag_active": {
-        "source": "gyro_magnitude",
-        "scale_min": 2.0,
-        "scale_max": 40.0,
-        "description": "Overall rotational intensity"
+      "low_value": {
+        "source": "const:0.25",
+        "scale_min": 0.0,
+        "scale_max": 1.0,
+        "description": "Fixed low value"
       },
-      "pitch_expressive": {
-        "source": "orientation_pitch",
+      "pitch_color_select": {
+        "source": "synth_pitch_deg",
         "scale_min": -90.0,
         "scale_max": 90.0,
-        "description": "Tilt forward/back for variance"
-      },
-      "roll_expressive": {
-        "source": "orientation_roll",
-        "scale_min": -90.0,
-        "scale_max": 90.0,
-        "description": "Tilt side/side for decay"
+        "description": "Pitch selects color position through Maestro Energy"
       }
     },
     "osc_addresses": {
       "global_brightness": "/global/brightness",
+      "live_brightness": "/live/1/brightness",
       "live_energy": "/live/1/energy",
       "live_motion_speed": "/live/1/motion/speed",
       "live_excitement": "/live/1/excitement",
       "live_variance": "/live/1/variance",
       "live_decay": "/live/1/decay",
-      "trigger_effect": "/triggers/effect",
-      "trigger_strobe": "/triggers/strobe"
+      "live_attack": "/live/1/attack"
     }
   },
   "osc_routes": [
@@ -60,49 +49,49 @@
       "enabled": true,
       "source": "interaction_gate",
       "osc": "global_brightness",
-      "description": "Lights fully off at rest, on when picked up"
+      "description": "Global brightness follows candle active/rest state"
     },
     {
       "enabled": true,
-      "source": "interaction_activity",
+      "source": "interaction_gate",
+      "osc": "live_brightness",
+      "description": "Live fixture group brightness follows candle active/rest state"
+    },
+    {
+      "enabled": true,
+      "source": "pitch_color_select",
       "osc": "live_energy",
-      "description": "Energy rises with movement"
+      "description": "Pitch controls color select via Energy"
     },
     {
       "enabled": true,
-      "source": "gyro_z_abs_fast",
+      "source": "mid_value",
       "osc": "live_motion_speed",
-      "description": "Twisting object controls motion speed"
+      "description": "Keep motion speed fixed"
     },
     {
       "enabled": true,
-      "source": "gyro_mag_active",
+      "source": "mid_value",
       "osc": "live_excitement",
-      "description": "Overall rotational intensity controls excitement"
+      "description": "Keep excitement fixed"
     },
     {
       "enabled": true,
-      "source": "pitch_expressive",
+      "source": "low_value",
       "osc": "live_variance",
-      "description": "Pitch changes pattern variance"
-    },
-    {
-      "enabled": false,
-      "source": "roll_expressive",
-      "osc": "live_decay",
-      "description": "Roll changes decay/trailing"
+      "description": "Keep variance/background fixed"
     },
     {
       "enabled": true,
-      "source": "pickup_event",
-      "osc": "trigger_effect",
-      "description": "Kick an effect when object is first picked up"
+      "source": "mid_value",
+      "osc": "live_decay",
+      "description": "Keep decay/trailing fixed"
     },
     {
-      "enabled": false,
-      "source": "pickup_event",
-      "osc": "trigger_strobe",
-      "description": "Optional pickup flash"
+      "enabled": true,
+      "source": "mid_value",
+      "osc": "live_attack",
+      "description": "Keep attack fixed"
     }
   ]
 }
