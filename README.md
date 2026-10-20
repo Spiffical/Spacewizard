@@ -94,7 +94,11 @@ scripts/deploy_to_pi.sh            # from a laptop: copy this checkout, run the 
 systemctl --user status spacewizard-production.service
 ```
 
-Bridge and synth logs are in `.runtime/logs/` on the Pi.
+Bridge and synth logs are in `.runtime/logs/` on the Pi and are cleared at each restart.
+For diagnosing problems afterwards, the bridge also keeps a permanent history in
+`.runtime/history/rig.log`. It writes a summary every 10 seconds (data rate, dropouts,
+handling, audio output level, synth load) and a line for each event. It survives
+restarts and reboots and never grows past 50 MB.
 
 The serial port, Maestro address and default mode are set in
 `systemd/user/spacewizard-production.service`. Connect the Pi to the Maestro by

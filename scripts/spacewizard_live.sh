@@ -533,6 +533,7 @@ start_bridge() {
     fi
     bridge_args+=("--synth")
     bridge_args+=("--health-file" "$RUNTIME_DIR/bridge.health")
+    bridge_args+=("--history-log" "$RUNTIME_DIR/history/rig.log")
     if [[ "$VERBOSE_TEST" -eq 1 ]]; then
         bridge_args+=("--verbose-test")
     fi

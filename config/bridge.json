@@ -58,6 +58,14 @@
     "address_prefix": "/spacewizard/sensor",
     "description": "Open OSC stream of the motion sensor's data for anyone on the same network: one bundle per frame, UDP broadcast to port on every IPv4 network the bridge is on, plus any host or host:port in targets (for networks that block broadcast). Messages are listed in bridge/public_osc.py and the README."
   },
+  "history_log": {
+    "stats_seconds": 10,
+    "max_bytes": 5000000,
+    "backup_count": 9,
+    "audio_level": true,
+    "synth_server_port": 57110,
+    "description": "Permanent rig history, written when the bridge runs with --history-log (the launcher uses .runtime/history/rig.log). One summary line every stats_seconds plus a line per event, kept across restarts and rotated by size, so it never takes more than (backup_count + 1) x max_bytes on disk. audio_level records the default audio output's level through PipeWire's pw-record where available; synth_server_port is the SuperCollider server queried for CPU load."
+  },
   "maestro_settings": {
     "default_host": "192.168.37.1",
     "default_port": 7672,
