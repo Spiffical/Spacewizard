@@ -204,6 +204,69 @@ class MotionTests(unittest.TestCase):
 
 
 @unittest.skipUnless(hasattr(os, 'openpty'), 'requires pseudo-terminal support')
+class HistoryTests(unittest.TestCase):
+    def test_history_records_events_and_summaries(self):
+        from bridge.history import RigHistory
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'history' / 'rig.log'
+            history = RigHistory(str(path), {'history_log': {'stats_seconds': 1, 'audio_level': False}})
+            t = 100.0
+            def step(seq=None, handled=False, connected=True, stale=False, dt=.01):
+                nonlocal t
+                t += dt
+                history.poll(t, connected=connected, stale=stale)
+                if seq is not None:
+                    history.frame({'SEQ': float(seq)}, {'interaction_active': handled}, t)
+            step(connected=False, stale=True)
+            step(1000, stale=True)
+            for i in range(1, 120):  # 100 Hz; SEQ 1010 is lost; picked up at 1030
+                step(None if i == 10 else 1000 + i, handled=i >= 30)
+            for _ in range(5):  # the transmitter goes quiet
+                step(stale=True, dt=.5)
+            for text in ['Radio initialized successfully'] * 3 + ['SpaceWizard OSC Receiver Starting...']:
+                history.rejected_line(text, t)
+            invalid = ('FMT=2 AX=1 AY=2 AZ=8192 GX=0 GY=0 GZ=0 YAW=0 PITCH=0 ROLL=0 '
+                       'QW=16384 QX=0 QY=0 QZ=0 IMP=0 SEQ=7 VALID=0')
+            self.assertIsNone(parse_serial_line(invalid))
+            history.rejected_line(invalid, t)
+            step(3, stale=True)  # it rebooted
+            step(4)
+            step(connected=False, stale=True)
+            step(connected=False, stale=True, dt=6)
+            step(connected=True, stale=True)
+            history.close()
+
+            text = path.read_text()
+            for expected in [
+                'bridge started', 'sensor data arriving', 'picked up', 'missed 1 ',
+                'sensor data stopped (last frame 0.5 s ago, last SEQ 1119)',
+                'receiver: Radio initialized successfully',
+                'receiver: (previous message repeated 2 more times)',
+                'receiver: SpaceWizard OSC Receiver Starting...',
+                'transmitter reports no fresh sensor sample (VALID=0)',
+                'transmitter restarted (SEQ 1119 -> 3)', 'transmitter sensor samples valid again',
+                'set down', 'sensor data back after 2.5 s', 'receiver disconnected',
+                'no receiver on USB; retrying', 'receiver connected after 6.0 s', 'bridge stopped',
+            ]:
+                self.assertIn(expected, text)
+            self.assertEqual(text.count('Radio initialized successfully'), 1)
+            for entry in text.splitlines():
+                self.assertRegex(entry, r'^\d{4}-\d\d-\d\d \d\d:\d\d:\d\d\.\d{3} up \d+\.\d  \S')
+
+    def test_history_stays_within_its_size_cap(self):
+        from bridge.history import RigHistory
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'rig.log'
+            history = RigHistory(str(path), {'history_log': {'max_bytes': 2000, 'backup_count': 2, 'audio_level': False}})
+            for i in range(300):
+                history.event(f'event {i:04d} ' + 'x' * 60)
+            history.close()
+            files = sorted(Path(directory).iterdir())
+            self.assertEqual([f.name for f in files], ['rig.log', 'rig.log.1', 'rig.log.2'])
+            self.assertTrue(all(f.stat().st_size <= 2000 for f in files))
+            self.assertIn('bridge stopped', path.read_text())
+
+
 class BridgeIntegrationTests(unittest.TestCase):
     def test_real_process_loss_reconnect_invalid_frames_and_sigterm(self):
         # Local UDP collectors receive commands without lighting or audio hardware.
@@ -225,6 +288,7 @@ class BridgeIntegrationTests(unittest.TestCase):
             device = Path(directory) / 'receiver'
             log_path = Path(directory) / 'bridge.log'
             health_path = Path(directory) / 'bridge.health'
+            history_path = Path(directory) / 'history' / 'rig.log'
             def attach():
                 master, slave = os.openpty()
                 masters.append(master)
@@ -265,6 +329,7 @@ class BridgeIntegrationTests(unittest.TestCase):
                         sys.executable, str(ROOT / 'scripts/run_bridge.py'),
                         str(device), '127.0.0.1', str(maestro.getsockname()[1]), '--synth',
                         '--synth-port', str(synth.getsockname()[1]), '--health-file', str(health_path),
+                        '--history-log', str(history_path),
                         '--config', str(ROOT / 'config/bridge.json'),
                         '--no-public-broadcast', '--public-osc-target', f'127.0.0.1:{public.getsockname()[1]}'
                     ], stdout=log, stderr=subprocess.STDOUT)
@@ -303,6 +368,11 @@ class BridgeIntegrationTests(unittest.TestCase):
                     self.assertEqual(process.returncode, 0, log_path.read_text())
                     self.assertEqual(latest('/global/brightness'), [0.0])
                     self.assertEqual(latest('/spacewizard/auduino')[0], 0.0)
+                    history = history_path.read_text()
+                    for expected in ['bridge started', 'receiver connected', 'sensor data arriving', 'picked up',
+                                     'sensor data stopped', 'sensor data back after', 'receiver disconnected',
+                                     'bridge stopped']:
+                        self.assertIn(expected, history)
             finally:
                 if process is not None and process.poll() is None:
                     process.kill(); process.wait()

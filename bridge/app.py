@@ -27,6 +27,7 @@ from .osc import (
     send_synth_status_messages,
 )
 from .serial_input import parse_serial_line
+from .history import RigHistory
 from .public_osc import PublicOscStream
 from .reliability import InputFreshness, RecoveringOSCClient, RecoveringSerial
 
@@ -93,6 +94,7 @@ def _build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("-p", "--session-plot", action="store_true", help="Save impact-session plot PNG")
     parser.add_argument("--live-plot", action="store_true", help="Show live interactive plot")
     parser.add_argument("--health-file", help="Optional supervisor heartbeat file")
+    parser.add_argument("--history-log", help="Append a permanent, size-capped rig history to this file")
     parser.add_argument("--no-public-osc", action="store_true", help="Do not send the public OSC stream")
     parser.add_argument("--public-osc-port", type=int, help="UDP port for the public OSC stream (default: config, 9000)")
     parser.add_argument(
@@ -430,6 +432,12 @@ def main(argv: list[str] | None = None) -> int:
             broadcast=False if args.no_public_broadcast else None,
             extra_targets=args.public_osc_target,
         )
+    history = None
+    if args.history_log:
+        try:
+            history = RigHistory(args.history_log, config, synth_host=synth_host if synth_enabled else None)
+        except OSError as exc:
+            print(f"Rig history unavailable at {args.history_log}: {exc}")
     freshness = InputFreshness(float(data_processing_cfg.get("input_timeout_seconds", 0.5)))
     impact_state = ImpactState()
     session_max_deviation_g = 0.0
@@ -455,6 +463,8 @@ def main(argv: list[str] | None = None) -> int:
         print(f"Synth OSC output configured: {synth_host}:{synth_port}")
     if public_stream:
         print(f"Public OSC stream: {public_stream.describe()}")
+    if history:
+        print(f"Rig history: {args.history_log}")
     print("Bridge ready; waiting for valid sensor data (outputs off).")
 
     session_mode = impact_session_seconds > 0
@@ -477,6 +487,12 @@ def main(argv: list[str] | None = None) -> int:
                 if args.health_file and now_input - last_health_write >= 1.0:
                     Path(args.health_file).touch()
                     last_health_write = now_input
+                if history:
+                    history.poll(
+                        now_input,
+                        connected=serial_port.connection is not None,
+                        stale=freshness.stale(now_input),
+                    )
                 if session_mode and get_current_time_ms() - session_start_ms >= impact_session_seconds * 1000:
                     break
                 if freshness.stale(now_input):
@@ -505,6 +521,8 @@ def main(argv: list[str] | None = None) -> int:
 
                 data = parse_serial_line(line)
                 if not data:
+                    if history:
+                        history.rejected_line(line, time.monotonic())
                     continue
                 now_input = time.monotonic()
                 # The read itself may have crossed the deadline.
@@ -526,6 +544,8 @@ def main(argv: list[str] | None = None) -> int:
                 )
                 if not metrics:
                     continue
+                if history:
+                    history.frame(data, metrics, now_input)
                 if public_stream:
                     public_stream.send_frame(data, metrics, time.monotonic())
 
@@ -647,6 +667,10 @@ def main(argv: list[str] | None = None) -> int:
 
     except KeyboardInterrupt:
         print("\nStopping...")
+    except Exception as exc:
+        if history:
+            history.event(f"bridge crashed: {exc!r}")
+        raise
     finally:
         for sig, handler in previous_signal_handlers.items():
             signal.signal(sig, handler)
@@ -664,6 +688,8 @@ def main(argv: list[str] | None = None) -> int:
         for client in (osc_client, synth_client):
             if client:
                 client.close()
+        if history:
+            history.close()
         if session_mode:
             _print_session_report(
                 config=config,
